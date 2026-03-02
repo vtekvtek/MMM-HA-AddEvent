@@ -1,0 +1,11 @@
+{
+  "name": "mmm-ha-addevent",
+  "version": "1.0.0",
+  "description": "MagicMirror module to create Home Assistant calendar events",
+  "main": "MMM-HA-AddEvent.js",
+  "author": "V-tec",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
