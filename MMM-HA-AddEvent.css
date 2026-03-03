@@ -8,9 +8,7 @@
   justify-content: center;
 }
 
-.haAddWrap {
-  width: 260px;
-}
+.haAddWrap { width: 260px; }
 
 .haAddRow {
   padding: 8px 10px;
@@ -36,11 +34,7 @@
   outline: none;
 }
 
-.haAddTitleWrap {
-  display: flex;
-  align-items: center;
-}
-
+.haAddTitleWrap { display: flex; align-items: center; }
 .haAddLabel {
   font-size: 16px;
   line-height: 1.2;
@@ -54,11 +48,7 @@
   align-items: flex-end;
   gap: 4px;
 }
-
-.haAddHint {
-  font-size: 11px;
-  opacity: 0.65;
-}
+.haAddHint { font-size: 11px; opacity: 0.65; }
 
 .haAddRow.isAccent {
   border-color: rgba(255, 170, 90, 0.55);
@@ -136,7 +126,7 @@
   margin-bottom: 5px;
 }
 
-/* All-day row: label left, checkbox next to it, not centered */
+/* All-day row */
 .haRowInline {
   display: flex;
   align-items: center;
@@ -192,20 +182,18 @@
   margin-bottom: 8px;
 }
 
-/* Hide the calendar icon for date/datetime inputs (Chromium/Electron) */
+/* Hide date/datetime icons */
 .haRow input[type="date"],
 .haRow input[type="datetime-local"] {
   -webkit-appearance: none;
   appearance: none;
 }
-
 .haRow input[type="date"]::-webkit-calendar-picker-indicator,
 .haRow input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   opacity: 0;
   display: none;
   -webkit-appearance: none;
 }
-
 .haRow input[type="date"]::-webkit-inner-spin-button,
 .haRow input[type="date"]::-webkit-clear-button,
 .haRow input[type="datetime-local"]::-webkit-inner-spin-button,
@@ -237,9 +225,7 @@
   border-color: rgba(255,255,255,0.22);
 }
 
-.haBtn.cancel {
-  opacity: 0.85;
-}
+.haBtn.cancel { opacity: 0.85; }
 
 .haBtn.save {
   border-color: rgba(255, 170, 90, 0.55);
@@ -248,7 +234,7 @@
 }
 
 /* =========================
-   SIMPLE-KEYBOARD AREA
+   SIMPLE-KEYBOARD THEME
    ========================= */
 
 .haKbWrap {
@@ -261,15 +247,31 @@
   width: 100%;
 }
 
-/* Dark theme tweaks for keys */
+/* Make the keyboard base match the modal */
+.haKb.simple-keyboard {
+  background: rgba(17,17,17,0.96);
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+}
+
+/* Keys: black-ish with white lettering */
 .haKb .hg-button {
   border-radius: 10px;
   border: 1px solid rgba(255,255,255,0.14);
   background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.92);
+  color: rgba(255,255,255,0.94);
+  font-weight: 700;
 }
 
 .haKb .hg-button:active {
-  background: rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.12);
   border-color: rgba(255,255,255,0.22);
+}
+
+/* Active/toggled buttons (Caps) */
+.haKb .hg-button.hg-activeButton {
+  border-color: rgba(255, 170, 90, 0.55);
+  background: rgba(255, 160, 70, 0.18);
+  color: rgba(255,255,255,0.98);
 }
