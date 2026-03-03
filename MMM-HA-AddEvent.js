@@ -520,17 +520,17 @@ Module.register("MMM-HA-AddEvent", {
     });
   },
 
-  _applyKeyboardCaseMode(force) {
-    if (!this._keyboard) return;
+_applyKeyboardCaseMode() {
+  if (!this._keyboard) return;
 
-    // Priority:
-    // capsLock OR autoCapNext => shift layout, else default layout
-    const wantUpper = !!this._capsLock || !!this._autoCapNext;
-    const target = wantUpper ? "shift" : "default";
+  const wantUpper = !!this._capsLock || !!this._autoCapNext;
+  const target = wantUpper ? "shift" : "default";
 
-    // Keep it simple, set it every time (force param kept for compatibility)
-    this._keyboard.setOptions({ layoutName: target });
-  },
+  this._keyboard.setOptions({ layoutName: target });
+
+  // Re-apply Caps highlight after layout switch
+  this._applyCapsVisual();
+},
 
   _syncKeyboardToActive() {
     if (!this._keyboard) return;
@@ -592,15 +592,18 @@ Module.register("MMM-HA-AddEvent", {
     }
 
     // SHIFT (one character only)
-    if (btn === "{shift}") {
-      const current = this._keyboard.options.layoutName || "default";
-      const temp = current === "default" ? "shift" : "default";
-      this._keyboard.setOptions({ layoutName: temp });
+if (btn === "{shift}") {
+  const current = this._keyboard.options.layoutName || "default";
+  const temp = current === "default" ? "shift" : "default";
+  this._keyboard.setOptions({ layoutName: temp });
 
-      this._shiftOneShot = true;
-      this._pendingOneShotReset = false;
-      return;
-    }
+  // Re-apply caps highlight after layout switch
+  this._applyCapsVisual();
+
+  this._shiftOneShot = true;
+  this._pendingOneShotReset = false;
+  return;
+}
 
     if (btn === "{clear}") {
       this._keyboard.clearInput();
