@@ -35,6 +35,7 @@
 }
 
 .haAddTitleWrap { display: flex; align-items: center; }
+
 .haAddLabel {
   font-size: 16px;
   line-height: 1.2;
@@ -48,6 +49,7 @@
   align-items: flex-end;
   gap: 4px;
 }
+
 .haAddHint { font-size: 11px; opacity: 0.65; }
 
 .haAddRow.isAccent {
@@ -188,12 +190,14 @@
   -webkit-appearance: none;
   appearance: none;
 }
+
 .haRow input[type="date"]::-webkit-calendar-picker-indicator,
 .haRow input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   opacity: 0;
   display: none;
   -webkit-appearance: none;
 }
+
 .haRow input[type="date"]::-webkit-inner-spin-button,
 .haRow input[type="date"]::-webkit-clear-button,
 .haRow input[type="datetime-local"]::-webkit-inner-spin-button,
@@ -243,35 +247,42 @@
   border-top: 1px solid rgba(255,255,255,0.10);
 }
 
-.haKb {
-  width: 100%;
+.haKb { width: 100%; }
+
+/* Force the keyboard base to dark, regardless of SimpleKeyboard css load order */
+#HA_EVENTADD_PORTAL .haModal .haKb.simple-keyboard,
+#HA_EVENTADD_PORTAL .haModal .simple-keyboard.haKb {
+  background: rgba(17,17,17,0.96) !important;
+  padding: 10px !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  box-shadow: none !important;
 }
 
-/* Make the keyboard base match the modal */
-.haKb.simple-keyboard {
-  background: rgba(17,17,17,0.96);
-  padding: 10px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.14);
+/* Force row spacing */
+#HA_EVENTADD_PORTAL .haModal .haKb .hg-row {
+  margin-bottom: 8px !important;
 }
 
-/* Keys: black-ish with white lettering */
-.haKb .hg-button {
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.14);
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.94);
-  font-weight: 700;
+/* Force keys to dark with white text */
+#HA_EVENTADD_PORTAL .haModal .haKb .hg-button,
+#HA_EVENTADD_PORTAL .haModal .simple-keyboard.haKb .hg-button {
+  border-radius: 10px !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  background: rgba(255,255,255,0.06) !important;
+  color: rgba(255,255,255,0.94) !important;
+  font-weight: 700 !important;
 }
 
-.haKb .hg-button:active {
-  background: rgba(255,255,255,0.12);
-  border-color: rgba(255,255,255,0.22);
+/* Pressed */
+#HA_EVENTADD_PORTAL .haModal .haKb .hg-button:active {
+  background: rgba(255,255,255,0.12) !important;
+  border-color: rgba(255,255,255,0.22) !important;
 }
 
-/* Active/toggled buttons (Caps) */
-.haKb .hg-button.hg-activeButton {
-  border-color: rgba(255, 170, 90, 0.55);
-  background: rgba(255, 160, 70, 0.18);
-  color: rgba(255,255,255,0.98);
+/* Active/toggled button (Caps) */
+#HA_EVENTADD_PORTAL .haModal .haKb .hg-button.hg-activeButton {
+  border-color: rgba(255, 170, 90, 0.55) !important;
+  background: rgba(255, 160, 70, 0.18) !important;
+  color: rgba(255,255,255,0.98) !important;
 }
