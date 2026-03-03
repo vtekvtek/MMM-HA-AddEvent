@@ -5,7 +5,11 @@ Module.register("MMM-HA-AddEvent", {
     buttonText: "Add Event",
     calendarTitle: "Add Family Event",
     defaultDurationMinutes: 30,
-    minuteRounding: 5
+    minuteRounding: 5,
+
+    // NEW: URL used by MagicMirror default calendar module
+    // Example: "http://192.168.1.5:8888/modules/Family.ics"
+    calendarIcsUrl: ""
   },
 
   start() {
@@ -259,7 +263,9 @@ Module.register("MMM-HA-AddEvent", {
       this._current.allDay = !!allDayToggle.checked;
 
       if (this._current.allDay) {
-        const base = this._current.startDT ? String(this._current.startDT).split("T")[0] : this._toDateOnly(new Date());
+        const base = this._current.startDT
+          ? String(this._current.startDT).split("T")[0]
+          : this._toDateOnly(new Date());
         this._current.startDate = base;
         this._current.endDate = base;
       } else {
@@ -681,25 +687,34 @@ Module.register("MMM-HA-AddEvent", {
       return;
     }
 
+    // Start saving UX
+    this._isSaving = true;
+    this._status = "Saving to calendar…";
+    this._setFormDisabled(true);
+    this._renderStatus();
+
     if (this._current.allDay) {
       const s = this._parseDateOnly(this._current.startDate);
       const e = this._parseDateOnly(this._current.endDate);
 
       if (!s || !e) {
+        this._isSaving = false;
+        this._setFormDisabled(false);
+        this._status = "";
+        this._renderStatus();
         alert("Start Date and End Date are required.");
         return;
       }
       if (e < s) {
+        this._isSaving = false;
+        this._setFormDisabled(false);
+        this._status = "";
+        this._renderStatus();
         alert("End Date must be on or after Start Date.");
         return;
       }
 
       const endExclusive = this._addDaysDateOnly(this._current.endDate, 1);
-
-      this._isSaving = true;
-      this._status = "Saving to calendar…";
-      this._setFormDisabled(true);
-      this._renderStatus();
 
       this.sendSocketNotification("CREATE_EVENT", {
         allDay: true,
@@ -715,14 +730,13 @@ Module.register("MMM-HA-AddEvent", {
     const end = new Date(this._current.endDT);
 
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+      this._isSaving = false;
+      this._setFormDisabled(false);
+      this._status = "";
+      this._renderStatus();
       alert("End time must be after start time.");
       return;
     }
-
-    this._isSaving = true;
-    this._status = "Saving to calendar…";
-    this._setFormDisabled(true);
-    this._renderStatus();
 
     this.sendSocketNotification("CREATE_EVENT", {
       allDay: false,
@@ -733,13 +747,26 @@ Module.register("MMM-HA-AddEvent", {
     });
   },
 
+  _fetchCalendarNow() {
+    const base = String(this.config.calendarIcsUrl || "").trim();
+    if (!base) return;
+
+    const busted1 = `${base}${base.includes("?") ? "&" : "?"}_=${Date.now()}`;
+    this.sendNotification("FETCH_CALENDAR", { url: busted1 });
+
+    setTimeout(() => {
+      const busted2 = `${base}${base.includes("?") ? "&" : "?"}_=${Date.now()}`;
+      this.sendNotification("FETCH_CALENDAR", { url: busted2 });
+    }, 2500);
+  },
+
   socketNotificationReceived(notification, payload) {
     if (notification === "PROGRESS") {
       const step = payload?.step || "";
       if (step === "ha") this._status = "Saving to calendar…";
       else if (step === "sync") this._status = "Syncing iCloud…";
+      else if (step === "wait_ics") this._status = "Finalizing calendar file…";
       else if (step === "fetch") this._status = "Refreshing Mirror…";
-      else if (step === "done") this._status = "Saved!";
       else if (step) this._status = String(step);
       this._renderStatus();
       return;
@@ -753,17 +780,8 @@ Module.register("MMM-HA-AddEvent", {
       this._status = "Saved!";
       this._renderStatus();
 
-      // IMPORTANT: tell the default calendar module to refetch this URL
-      // This path uses the calendar module's own identifier logic
-      this.sendNotification("FETCH_CALENDAR", {
-        url: this.config.calendarIcsUrl
-      });
-
-      // Optional: nudge CalendarExt3 redraw
-      this.sendNotification("CX3_SET_CONFIG", {
-        referenceDate: new Date().toISOString().slice(0, 10),
-        forceRefresh: Date.now()
-      });
+      // Important: bust cache and fetch twice
+      this._fetchCalendarNow();
 
       setTimeout(() => this.close(), 450);
     } else {
