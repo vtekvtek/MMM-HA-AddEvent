@@ -37,13 +37,39 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   getDom() {
-    const wrap = document.createElement("div");
-    const btn = document.createElement("button");
-    btn.innerText = this.config.buttonText || "Add Event";
-    btn.style.cursor = "pointer";
-    btn.onclick = () => this.open();
-    wrap.appendChild(btn);
-    return wrap;
+  const wrap = document.createElement("div");
+  wrap.className = "haAddWrap";
+
+  const row = document.createElement("div");
+  row.className = "haAddRow";
+
+  const inner = document.createElement("div");
+  inner.className = "haAddButton";
+  inner.onclick = () => this.open();
+
+  const left = document.createElement("div");
+  left.className = "haAddTitleWrap";
+
+  const label = document.createElement("div");
+  label.className = "haAddLabel";
+  label.textContent = this.config.buttonText || "Add Event";
+
+  left.appendChild(label);
+
+  const right = document.createElement("div");
+  right.className = "haAddMeta";
+
+  const hint = document.createElement("div");
+  hint.className = "haAddHint";
+  hint.textContent = "Tap to create";
+
+  right.appendChild(hint);
+
+  inner.append(left, right);
+  row.appendChild(inner);
+  wrap.appendChild(row);
+
+  return wrap;
   },
 
   _openKeyboardForTarget(targetId, styleOverride) {
