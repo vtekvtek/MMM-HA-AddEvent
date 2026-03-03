@@ -1,60 +1,43 @@
 const NodeHelper = require("node_helper");
 const { exec } = require("child_process");
 const fs = require("fs");
+const path = require("path");
 
-function execPromise(cmd, timeoutMs) {
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function statMtimeMs(p) {
+  try {
+    return fs.statSync(p).mtimeMs;
+  } catch (e) {
+    return 0;
+  }
+}
+
+async function waitForMtimeBump(filePath, beforeMs, timeoutMs = 20000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const now = statMtimeMs(filePath);
+    if (now && now > beforeMs) return now;
+    await sleep(250);
+  }
+  return null;
+}
+
+function execWithTimeout(cmd, timeoutMs) {
   return new Promise((resolve, reject) => {
-    exec(cmd, { timeout: timeoutMs }, (err, stdout, stderr) => {
+    const child = exec(cmd, { timeout: timeoutMs, windowsHide: true }, (err, stdout, stderr) => {
       if (err) {
-        reject(new Error(`${err.message}\n${stderr || ""}`.trim()));
+        const msg = (stderr || stdout || err.message || String(err)).trim();
+        reject(new Error(msg));
         return;
       }
-      resolve({ stdout: stdout || "", stderr: stderr || "" });
+      resolve({ stdout, stderr });
     });
+    // just in case, ensure kill on timeout
+    child.on("error", (e) => reject(e));
   });
-}
-
-async function statSafe(p) {
-  try {
-    return await fs.promises.stat(p);
-  } catch (e) {
-    return null;
-  }
-}
-
-// Wait for file size + mtime to stop changing across 2 consecutive checks.
-async function waitForStableFile(path, opts = {}) {
-  const timeoutMs = opts.timeoutMs ?? 15000;
-  const intervalMs = opts.intervalMs ?? 350;
-  const stableReadsNeeded = opts.stableReadsNeeded ?? 2;
-
-  const start = Date.now();
-  let last = null;
-  let stableCount = 0;
-
-  while (Date.now() - start < timeoutMs) {
-    const st = await statSafe(path);
-    if (!st) {
-      stableCount = 0;
-      last = null;
-      await new Promise((r) => setTimeout(r, intervalMs));
-      continue;
-    }
-
-    const cur = { size: st.size, mtimeMs: st.mtimeMs };
-
-    if (last && cur.size === last.size && cur.mtimeMs === last.mtimeMs) {
-      stableCount += 1;
-      if (stableCount >= stableReadsNeeded) return cur;
-    } else {
-      stableCount = 0;
-    }
-
-    last = cur;
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-
-  throw new Error(`ICS file did not stabilize in time: ${path}`);
 }
 
 module.exports = NodeHelper.create({
@@ -64,7 +47,7 @@ module.exports = NodeHelper.create({
 
   socketNotificationReceived: async function (notification, payload) {
     if (notification === "CONFIG") {
-      this.cfg = payload;
+      this.cfg = payload || {};
       return;
     }
 
@@ -79,12 +62,34 @@ module.exports = NodeHelper.create({
     const token = this.cfg.haToken;
     const entityId = this.cfg.calendarEntityId || "calendar.family";
 
+    const vdirCmd = String(this.cfg.vdirsyncerCmd || "").trim();
+    const vdirTimeout = Number(this.cfg.vdirsyncerTimeoutMs || 120000);
+
+    // IMPORTANT: local path to the .ics file vdirsyncer writes
+    // Example: "/home/magicmirror/MagicMirror/modules/Family.ics"
+    const icsPath = String(this.cfg.calendarIcsPath || "").trim();
+
+    // URL the calendar module uses
+    const icsUrl = String(this.cfg.calendarIcsUrl || "").trim();
+
     if (!haUrl) {
       this.sendSocketNotification("RESULT", { ok: false, error: "Missing haUrl in config" });
       return;
     }
     if (!token) {
       this.sendSocketNotification("RESULT", { ok: false, error: "Missing haToken in config" });
+      return;
+    }
+    if (!vdirCmd) {
+      this.sendSocketNotification("RESULT", { ok: false, error: "Missing vdirsyncerCmd in config" });
+      return;
+    }
+    if (!icsPath) {
+      this.sendSocketNotification("RESULT", { ok: false, error: "Missing calendarIcsPath in config" });
+      return;
+    }
+    if (!icsUrl) {
+      this.sendSocketNotification("RESULT", { ok: false, error: "Missing calendarIcsUrl in config" });
       return;
     }
 
@@ -122,7 +127,6 @@ module.exports = NodeHelper.create({
     }
 
     try {
-      // Step 1: HA create_event
       this.sendSocketNotification("PROGRESS", { step: "ha" });
 
       const res = await fetch(url, {
@@ -143,25 +147,31 @@ module.exports = NodeHelper.create({
         return;
       }
 
-      // Step 2: vdirsyncer sync (optional)
-      if (this.cfg.vdirsyncerCmd) {
-        this.sendSocketNotification("PROGRESS", { step: "sync" });
-        await execPromise(String(this.cfg.vdirsyncerCmd), Number(this.cfg.vdirsyncerTimeoutMs) || 120000);
-      }
+      // Snapshot mtime BEFORE sync
+      const beforeMtime = statMtimeMs(icsPath);
 
-      // Step 3: wait for ICS file to settle (optional but recommended)
-      if (this.cfg.calendarIcsPath) {
-        this.sendSocketNotification("PROGRESS", { step: "wait_ics" });
-        await waitForStableFile(String(this.cfg.calendarIcsPath), {
-          timeoutMs: 20000,
-          intervalMs: 350,
-          stableReadsNeeded: 2
+      this.sendSocketNotification("PROGRESS", { step: "sync" });
+      await execWithTimeout(vdirCmd, vdirTimeout);
+
+      // Wait for the file to actually change on disk
+      this.sendSocketNotification("PROGRESS", { step: "wait_ics" });
+      const bumped = await waitForMtimeBump(icsPath, beforeMtime, 20000);
+
+      if (!bumped) {
+        // If vdirsyncer succeeded but file mtime did not change, we still proceed,
+        // but tell you why it might be one behind (server cache or atomic write location mismatch)
+        this.sendSocketNotification("RESULT", {
+          ok: true,
+          fetchUrl: icsUrl,
+          warning: `vdirsyncer ran but ${path.basename(icsPath)} mtime did not bump`
         });
+        return;
       }
 
-      // Tell frontend it is safe to fetch now
       this.sendSocketNotification("PROGRESS", { step: "fetch" });
-      this.sendSocketNotification("RESULT", { ok: true });
+
+      // Done: only now tell the frontend to fetch
+      this.sendSocketNotification("RESULT", { ok: true, fetchUrl: icsUrl });
     } catch (e) {
       this.sendSocketNotification("RESULT", { ok: false, error: e?.message || String(e) });
     }
