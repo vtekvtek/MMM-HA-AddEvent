@@ -131,7 +131,7 @@
   margin-bottom: 5px;
 }
 
-/* High specificity so MM theme text-align cannot mess with caret */
+/* Strong overrides so MM themes can't right-align or disable selection */
 #HA_EVENTADD_PORTAL .haRow input,
 #HA_EVENTADD_PORTAL .haRow textarea {
   width: 100%;
@@ -145,6 +145,12 @@
 
   text-align: left !important;
   direction: ltr !important;
+
+  user-select: text !important;
+  -webkit-user-select: text !important;
+
+  touch-action: manipulation;
+  pointer-events: auto !important;
 }
 
 #HA_EVENTADD_PORTAL .haRow input[type="text"] {
@@ -171,7 +177,7 @@
 }
 
 #HA_EVENTADD_PORTAL .haRow input[type="datetime-local"]::-webkit-inner-spin-button,
-#HA EVENTADD_PORTAL .haRow input[type="datetime-local"]::-webkit-clear-button,
+#HA_EVENTADD_PORTAL .haRow input[type="datetime-local"]::-webkit-clear-button,
 #HA_EVENTADD_PORTAL .haRow input[type="date"]::-webkit-inner-spin-button,
 #HA_EVENTADD_PORTAL .haRow input[type="date"]::-webkit-clear-button {
   display: none;
