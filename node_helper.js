@@ -126,6 +126,9 @@ module.exports = NodeHelper.create({
       try {
         if (this.io && this.io.of) {
           this.io.of("calendar").emit("FETCH_CALENDAR", { url: icsUrl });
+          setTimeout(() => {
+            this.io.of("calendar").emit("FETCH_CALENDAR", { url: icsUrl });
+        }, 2000);
         }
       } catch (e) {
         // non-fatal, CalendarExt3 may still update on its own interval
