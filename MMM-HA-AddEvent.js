@@ -14,6 +14,11 @@ Module.register("MMM-HA-AddEvent", {
     this._activeField = "ha_summary";
     this._keyboard = null;
 
+    // Keyboard state
+    this._capsLock = true;          // start in caps
+    this._shiftOneShot = false;     // one-letter shift
+    this._pendingOneShotReset = false;
+
     this._current = this._defaultState();
 
     this._portal = document.getElementById("HA_EVENTADD_PORTAL");
@@ -89,6 +94,10 @@ Module.register("MMM-HA-AddEvent", {
     this._visible = true;
     this._activeField = "ha_summary";
 
+    // Start keyboard in caps when opening
+    this._capsLock = true;
+    this._shiftOneShot = false;
+
     this._applyVisibility();
     this._syncUIFromState();
 
@@ -96,6 +105,7 @@ Module.register("MMM-HA-AddEvent", {
       const el = this._refs.summary;
       if (el) el.focus({ preventScroll: true });
       this._initKeyboardIfNeeded();
+      this._applyKeyboardCaseMode(true);
       this._syncKeyboardToActive();
     }, 0);
   },
@@ -165,7 +175,6 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   _buildOnce() {
-    // Clear portal once at start, then never re-render by innerHTML again
     this._portal.innerHTML = "";
 
     const root = document.createElement("div");
@@ -174,7 +183,6 @@ Module.register("MMM-HA-AddEvent", {
     const overlay = document.createElement("div");
     overlay.className = "haOverlay";
 
-    // Close only when you tap the overlay itself
     overlay.addEventListener("pointerdown", (e) => {
       if (e.target === overlay) this.close();
     });
@@ -182,7 +190,6 @@ Module.register("MMM-HA-AddEvent", {
     const modal = document.createElement("div");
     modal.className = "haModal";
 
-    // Prevent overlay clicks from firing when interacting with modal
     modal.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
     });
@@ -208,7 +215,7 @@ Module.register("MMM-HA-AddEvent", {
     });
     summaryRow.appendChild(summary);
 
-    // All day row (label on the left)
+    // All day row
     const allDayRow = document.createElement("div");
     allDayRow.className = "haRowInline";
 
@@ -342,7 +349,7 @@ Module.register("MMM-HA-AddEvent", {
     });
     descRow.appendChild(desc);
 
-    // Keyboard container (always present, mounted once)
+    // Keyboard container
     const kbWrap = document.createElement("div");
     kbWrap.className = "haKbWrap";
     const kb = document.createElement("div");
@@ -367,7 +374,6 @@ Module.register("MMM-HA-AddEvent", {
 
     btnBar.append(cancel, save);
 
-    // Assemble
     form.append(
       summaryRow,
       allDayRow,
@@ -383,7 +389,6 @@ Module.register("MMM-HA-AddEvent", {
     root.appendChild(overlay);
     this._portal.appendChild(root);
 
-    // Store refs
     this._refs = {
       overlay,
       modal,
@@ -399,10 +404,10 @@ Module.register("MMM-HA-AddEvent", {
       kbEl: kb
     };
 
-    // Init keyboard after DOM is in place
     setTimeout(() => {
       this._initKeyboardIfNeeded();
       this._syncUIFromState();
+      this._applyKeyboardCaseMode(true);
       this._syncKeyboardToActive();
     }, 0);
   },
@@ -420,8 +425,6 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   _showPicker(inputEl) {
-    // Hide keyboard focus side effects by not touching active field here
-    // On Electron, showPicker exists on Chromium-based inputs
     if (!inputEl) return;
     try {
       if (typeof inputEl.showPicker === "function") {
@@ -440,6 +443,12 @@ Module.register("MMM-HA-AddEvent", {
     this._activeField = id;
     const el = document.getElementById(id);
     if (el) el.focus({ preventScroll: true });
+
+    // When switching fields, start in caps as requested
+    this._capsLock = true;
+    this._shiftOneShot = false;
+    this._applyKeyboardCaseMode(true);
+
     this._syncKeyboardToActive();
   },
 
@@ -460,25 +469,42 @@ Module.register("MMM-HA-AddEvent", {
           "1 2 3 4 5 6 7 8 9 0 {bksp}",
           "q w e r t y u i o p",
           "a s d f g h j k l",
-          "{shift} z x c v b n m {enter}",
-          "{space} {clear}"
+          "{caps} z x c v b n m {shift}",
+          "{space} {clear} {enter}"
         ],
         shift: [
           "! @ # $ % ^ & * ( ) {bksp}",
           "Q W E R T Y U I O P",
           "A S D F G H J K L",
-          "{shift} Z X C V B N M {enter}",
-          "{space} {clear}"
+          "{caps} Z X C V B N M {shift}",
+          "{space} {clear} {enter}"
         ]
       },
       display: {
         "{bksp}": "⌫",
         "{enter}": "Enter",
         "{shift}": "Shift",
+        "{caps}": "Caps",
         "{space}": "Space",
         "{clear}": "Clear"
       }
     });
+  },
+
+  _applyKeyboardCaseMode(force) {
+    if (!this._keyboard) return;
+
+    // If capsLock is on, we want shift layout (uppercase)
+    // If capsLock is off, we want default layout (lowercase)
+    const target = this._capsLock ? "shift" : "default";
+
+    if (force) {
+      this._keyboard.setOptions({ layoutName: target });
+      return;
+    }
+
+    const current = this._keyboard.options.layoutName || "default";
+    if (current !== target) this._keyboard.setOptions({ layoutName: target });
   },
 
   _syncKeyboardToActive() {
@@ -501,24 +527,53 @@ Module.register("MMM-HA-AddEvent", {
 
     el.value = input;
     el.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // One-shot shift: after one normal key, snap back to caps mode or lowercase mode
+    if (this._pendingOneShotReset) {
+      this._pendingOneShotReset = false;
+      this._shiftOneShot = false;
+      this._applyKeyboardCaseMode(true);
+    }
   },
 
   _onKbKeyPress(btn) {
     if (!this._keyboard) return;
 
+    // Caps lock toggle (persistent)
+    if (btn === "{caps}") {
+      this._capsLock = !this._capsLock;
+      this._shiftOneShot = false;
+      this._pendingOneShotReset = false;
+      this._applyKeyboardCaseMode(true);
+      return;
+    }
+
+    // Shift (one character only)
     if (btn === "{shift}") {
-      const current = this._keyboard.options.layoutName || "default";
-      this._keyboard.setOptions({ layoutName: current === "default" ? "shift" : "default" });
+      // If caps is on, shift should temporarily go lowercase for one char
+      // If caps is off, shift should temporarily go uppercase for one char
+      const tempLayout = this._capsLock ? "default" : "shift";
+      this._keyboard.setOptions({ layoutName: tempLayout });
+      this._shiftOneShot = true;
+      this._pendingOneShotReset = false; // will flip to true on next normal keypress
+      return;
     }
 
     if (btn === "{clear}") {
       this._keyboard.clearInput();
+      return;
     }
 
     if (btn === "{enter}") {
       if (this._activeField === "ha_summary") {
         this._setActiveField("ha_desc");
       }
+      return;
+    }
+
+    // For any normal key press, if shiftOneShot is active, schedule reset after the input updates
+    if (this._shiftOneShot) {
+      this._pendingOneShotReset = true;
     }
   },
 
@@ -536,7 +591,6 @@ Module.register("MMM-HA-AddEvent", {
     this._refs.startDate.value = this._current.startDate || "";
     this._refs.endDate.value = this._current.endDate || "";
 
-    // Toggle sections without re-rendering
     this._refs.timedWrap.style.display = this._current.allDay ? "none" : "block";
     this._refs.alldayWrap.style.display = this._current.allDay ? "block" : "none";
   },
