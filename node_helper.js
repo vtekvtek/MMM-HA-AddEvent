@@ -4,6 +4,8 @@ const { exec } = require("child_process");
 module.exports = NodeHelper.create({
   start() {
     this.cfg = null;
+    this._refreshInFlight = false;
+    this._lastIcsSig = null;
   },
 
   socketNotificationReceived: async function (notification, payload) {
@@ -13,63 +15,72 @@ module.exports = NodeHelper.create({
     }
     if (notification !== "CREATE_EVENT") return;
 
-    if (!this.cfg) {
-      this.sendSocketNotification("RESULT", { ok: false, error: "Missing config" });
+    if (this._refreshInFlight) {
+      this.sendSocketNotification("RESULT", { ok: false, error: "Busy, try again in a second." });
       return;
     }
-
-    const haUrl = String(this.cfg.haUrl || "").replace(/\/+$/, "");
-    const token = this.cfg.haToken;
-    const entityId = this.cfg.calendarEntityId || "calendar.family";
-
-    const calendarIcsUrl = String(this.cfg.calendarIcsUrl || "").trim();
-    const vdirsyncerCmd = String(this.cfg.vdirsyncerCmd || "").trim();
-    const vdirsyncerTimeoutMs = Number(this.cfg.vdirsyncerTimeoutMs || 120000);
-
-    if (!haUrl) {
-      this.sendSocketNotification("RESULT", { ok: false, error: "Missing haUrl in config" });
-      return;
-    }
-    if (!token) {
-      this.sendSocketNotification("RESULT", { ok: false, error: "Missing haToken in config" });
-      return;
-    }
-
-    const summary = String(payload?.summary ?? "").trim();
-    const description = String(payload?.description ?? "").trim();
-    if (!summary) {
-      this.sendSocketNotification("RESULT", { ok: false, error: "Missing title" });
-      return;
-    }
-
-    // 1) Create event in HA
-    this.sendSocketNotification("PROGRESS", { step: "ha" });
-
-    const url = `${haUrl}/api/services/calendar/create_event`;
-    const body = { entity_id: entityId, summary };
-    if (description) body.description = description;
-
-    if (payload?.allDay) {
-      const start_date = String(payload?.start_date ?? "");
-      const end_date = String(payload?.end_date ?? ""); // exclusive
-      if (!start_date || !end_date) {
-        this.sendSocketNotification("RESULT", { ok: false, error: "Missing all-day dates" });
-        return;
-      }
-      body.start_date = start_date;
-      body.end_date = end_date;
-    } else {
-      const start_date_time = payload?.start_date_time;
-      const end_date_time = payload?.end_date_time;
-      if (!start_date_time || !end_date_time) {
-        this.sendSocketNotification("RESULT", { ok: false, error: "Missing start/end time" });
-        return;
-      }
-      body.start_date_time = start_date_time;
-      body.end_date_time = end_date_time;
-    }
+    this._refreshInFlight = true;
 
     try {
+      if (!this.cfg) {
+        this.sendSocketNotification("RESULT", { ok: false, error: "Missing config" });
+        return;
+      }
+
+      const haUrl = String(this.cfg.haUrl || "").replace(/\/+$/, "");
+      const token = this.cfg.haToken;
+      const entityId = this.cfg.calendarEntityId || "calendar.family";
+
+      const calendarIcsUrl = String(this.cfg.calendarIcsUrl || "").trim();
+      const vdirsyncerCmd = String(this.cfg.vdirsyncerCmd || "").trim();
+      const vdirsyncerTimeoutMs = Number(this.cfg.vdirsyncerTimeoutMs || 120000);
+
+      if (!haUrl) {
+        this.sendSocketNotification("RESULT", { ok: false, error: "Missing haUrl in config" });
+        return;
+      }
+      if (!token) {
+        this.sendSocketNotification("RESULT", { ok: false, error: "Missing haToken in config" });
+        return;
+      }
+
+      const summary = String(payload?.summary ?? "").trim();
+      const description = String(payload?.description ?? "").trim();
+      if (!summary) {
+        this.sendSocketNotification("RESULT", { ok: false, error: "Missing title" });
+        return;
+      }
+
+      // helper
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      // 1) Create event in HA
+      this.sendSocketNotification("PROGRESS", { step: "ha" });
+
+      const url = `${haUrl}/api/services/calendar/create_event`;
+      const body = { entity_id: entityId, summary };
+      if (description) body.description = description;
+
+      if (payload?.allDay) {
+        const start_date = String(payload?.start_date ?? "");
+        const end_date = String(payload?.end_date ?? ""); // exclusive
+        if (!start_date || !end_date) {
+          this.sendSocketNotification("RESULT", { ok: false, error: "Missing all-day dates" });
+          return;
+        }
+        body.start_date = start_date;
+        body.end_date = end_date;
+      } else {
+        const start_date_time = payload?.start_date_time;
+        const end_date_time = payload?.end_date_time;
+        if (!start_date_time || !end_date_time) {
+          this.sendSocketNotification("RESULT", { ok: false, error: "Missing start/end time" });
+          return;
+        }
+        body.start_date_time = start_date_time;
+        body.end_date_time = end_date_time;
+      }
+
       const res = await fetch(url, {
         method: "POST",
         headers: {
@@ -87,89 +98,76 @@ module.exports = NodeHelper.create({
         });
         return;
       }
-    } catch (e) {
-      this.sendSocketNotification("RESULT", { ok: false, error: e?.message || String(e) });
-      return;
-    }
 
-    // 2) Run vdirsyncer (optional)
-    if (vdirsyncerCmd) {
-      this.sendSocketNotification("PROGRESS", { step: "sync" });
+      // 2) Run vdirsyncer
+      if (vdirsyncerCmd) {
+        this.sendSocketNotification("PROGRESS", { step: "sync" });
 
-      const ok = await new Promise((resolve) => {
-        const child = exec(vdirsyncerCmd, { timeout: vdirsyncerTimeoutMs }, (err, stdout, stderr) => {
-          if (err) {
-            const msg = (stderr || stdout || err.message || "").trim();
-            this.sendSocketNotification("RESULT", {
-              ok: false,
-              error: msg ? `vdirsyncer failed: ${msg}` : "vdirsyncer failed"
-            });
-            resolve(false);
-            return;
-          }
-          resolve(true);
-        });
-
-        child.on("error", (err) => {
-          this.sendSocketNotification("RESULT", {
-            ok: false,
-            error: `vdirsyncer failed: ${err?.message || String(err)}`
+        await new Promise((resolve, reject) => {
+          exec(vdirsyncerCmd, { timeout: vdirsyncerTimeoutMs }, (err, stdout, stderr) => {
+            if (err) {
+              const msg = (stderr || stdout || err.message || "").trim();
+              reject(new Error(msg ? `vdirsyncer failed: ${msg}` : "vdirsyncer failed"));
+              return;
+            }
+            resolve();
           });
-          resolve(false);
         });
-      });
+      }
 
-      if (!ok) return;
-    }
-
-    // Helper: sleep
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-    // 3) Confirm the MM box can see the updated ICS (no-cache GET)
-    //    This also warms up the webserver path, and helps avoid a stale 304/old body edge case.
-    if (calendarIcsUrl) {
-      try {
+      // 3) Wait until the served ICS actually changes (prevents “one behind”)
+      // We compute a simple signature: status + content-length of a cache-busted GET.
+      if (calendarIcsUrl) {
         this.sendSocketNotification("PROGRESS", { step: "fetch" });
 
-        // small settle time after writing
-        await sleep(2000);
-
-        const bust = `${calendarIcsUrl}${calendarIcsUrl.includes("?") ? "&" : "?"}ts=${Date.now()}`;
-        const check = await fetch(bust, {
-          method: "GET",
-          headers: {
-            "Cache-Control": "no-cache, no-store, max-age=0",
-            Pragma: "no-cache"
-          }
-        }).catch(() => null);
-
-        // If it fails, we still try to force fetch, but this is useful for debugging in pm2 logs
-        if (check && !check.ok) {
-          console.log(`[MMM-HA-AddEvent] ICS check non-OK: ${check.status}`);
-        }
-      } catch (e) {
-        console.log(`[MMM-HA-AddEvent] ICS check error: ${e?.message || e}`);
-      }
-
-      // 4) Force calendar module to fetch, multiple nudges spaced out
-      //    This handles internal debouncing and CalendarExt3 waitFetch behavior.
-      try {
-        const emitFetch = () => {
-          console.log(`[MMM-HA-AddEvent] Emitting FETCH_CALENDAR for ${calendarIcsUrl}`);
-          this.io.of("calendar").emit("FETCH_CALENDAR", { url: calendarIcsUrl });
+        const readSig = async () => {
+          const bust = `${calendarIcsUrl}${calendarIcsUrl.includes("?") ? "&" : "?"}ts=${Date.now()}`;
+          const r = await fetch(bust, {
+            method: "GET",
+            headers: {
+              "Cache-Control": "no-cache, no-store, max-age=0",
+              Pragma: "no-cache"
+            }
+          });
+          const len = Number(r.headers.get("content-length") || 0);
+          return `${r.status}:${len}`;
         };
 
-        emitFetch();
-        await sleep(2500);
-        emitFetch();
-        await sleep(7000);
-        emitFetch();
-      } catch (e) {
-        console.log(`[MMM-HA-AddEvent] FETCH_CALENDAR emit failed: ${e?.message || e}`);
-      }
-    }
+        // small settle time after file write
+        await sleep(1500);
 
-    this.sendSocketNotification("PROGRESS", { step: "done" });
-    this.sendSocketNotification("RESULT", { ok: true });
+        let sig = null;
+        for (let i = 0; i < 6; i++) {
+          try {
+            sig = await readSig();
+          } catch (e) {
+            sig = null;
+          }
+          if (sig && sig !== this._lastIcsSig) break;
+          await sleep(900);
+        }
+
+        if (sig) this._lastIcsSig = sig;
+
+        // 4) Emit exactly ONE manual fetch (no overlap)
+        console.log(`[MMM-HA-AddEvent] Emitting FETCH_CALENDAR for ${calendarIcsUrl}`);
+        this.io.of("calendar").emit("FETCH_CALENDAR", { url: calendarIcsUrl });
+
+        // Optional: one retry after a few seconds if the signature never changed
+        if (!sig || sig === this._lastIcsSig) {
+          setTimeout(() => {
+            console.log(`[MMM-HA-AddEvent] Retry FETCH_CALENDAR for ${calendarIcsUrl}`);
+            this.io.of("calendar").emit("FETCH_CALENDAR", { url: calendarIcsUrl });
+          }, 6000);
+        }
+      }
+
+      this.sendSocketNotification("PROGRESS", { step: "done" });
+      this.sendSocketNotification("RESULT", { ok: true });
+    } catch (e) {
+      this.sendSocketNotification("RESULT", { ok: false, error: e?.message || String(e) });
+    } finally {
+      this._refreshInFlight = false;
+    }
   }
 });
