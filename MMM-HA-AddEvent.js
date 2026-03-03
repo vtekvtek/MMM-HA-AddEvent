@@ -4,12 +4,6 @@ Module.register("MMM-HA-AddEvent", {
   defaults: {
     buttonText: "Add Event",
     calendarTitle: "Add Family Event",
-
-    // MMM-Keyboard (lavolp3) integration
-    keyboardKey: "MMM-HA-AddEvent",
-    keyboardStyle: "default", // keep "default" for text entry
-
-    // UI defaults
     defaultDurationMinutes: 30,
     minuteRounding: 5
   },
@@ -24,17 +18,26 @@ Module.register("MMM-HA-AddEvent", {
       document.body.appendChild(this._portal);
     }
 
-    this._activeTargetId = null;
-    this._keyboardOpenFor = null;
+    this._keyboard = null;
+    this._activeField = null;
 
-    this._current = this._blankState();
+    this._current = this._defaultState();
 
     this.sendSocketNotification("CONFIG", this.config);
     this._renderPortal();
   },
 
   getStyles() {
-    return ["MMM-HA-AddEvent.css"];
+    // simple-keyboard CSS plus our CSS
+    return [
+      "https://unpkg.com/simple-keyboard@latest/build/css/index.css",
+      "MMM-HA-AddEvent.css"
+    ];
+  },
+
+  getScripts() {
+    // simple-keyboard JS
+    return ["https://unpkg.com/simple-keyboard@latest/build/index.js"];
   },
 
   getDom() {
@@ -67,6 +70,7 @@ Module.register("MMM-HA-AddEvent", {
     right.appendChild(hint);
 
     btn.append(left, right);
+
     btn.addEventListener("click", () => this.open());
     btn.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -80,58 +84,25 @@ Module.register("MMM-HA-AddEvent", {
     return wrap;
   },
 
-  notificationReceived(notification, payload) {
-    if (notification !== "KEYBOARD_INPUT") return;
-    if (!payload || payload.key !== this.config.keyboardKey) return;
-
-    const targetId = payload.data && payload.data.targetId ? payload.data.targetId : this._activeTargetId;
-    const message = payload.message != null ? String(payload.message) : "";
-
-    if (!targetId) return;
-    const el = document.getElementById(targetId);
-    if (!el) return;
-
-    el.value = message;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-  },
-
   open() {
     this._current = this._defaultState();
     this._visible = true;
-    this._activeTargetId = null;
-    this._keyboardOpenFor = null;
-
+    this._activeField = "ha_summary";
     this._renderPortal();
 
     setTimeout(() => {
       const el = document.getElementById("ha_summary");
       if (el) el.focus({ preventScroll: true });
+      this._initKeyboardIfNeeded();
+      this._syncKeyboardToField("ha_summary");
     }, 0);
   },
 
   close() {
     this._visible = false;
-    this._activeTargetId = null;
-    this._keyboardOpenFor = null;
-
-    this._forceHideMMMKeyboard();
+    this._activeField = null;
+    this._destroyKeyboard();
     this._renderPortal();
-  },
-
-  _blankState() {
-    return {
-      summary: "",
-      description: "",
-      allDay: false,
-
-      // timed mode
-      startDT: "",
-      endDT: "",
-
-      // all-day mode (date-only)
-      startDate: "",
-      endDate: ""
-    };
   },
 
   _defaultState() {
@@ -174,13 +145,9 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   _parseDateOnly(str) {
-    // expects YYYY-MM-DD
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(str || ""));
     if (!m) return null;
-    const y = Number(m[1]);
-    const mo = Number(m[2]) - 1;
-    const da = Number(m[3]);
-    const dt = new Date(y, mo, da, 0, 0, 0, 0);
+    const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
     return Number.isNaN(dt.getTime()) ? null : dt;
   },
 
@@ -191,42 +158,7 @@ Module.register("MMM-HA-AddEvent", {
     return this._toDateOnly(dt);
   },
 
-  _openKeyboardForTarget(targetId) {
-    if (!targetId) return;
-
-    // prevent reopen loops if keyboard already opened for this field
-    if (this._keyboardOpenFor === targetId) return;
-
-    this._activeTargetId = targetId;
-    this._keyboardOpenFor = targetId;
-
-    this.sendNotification("KEYBOARD", {
-      key: this.config.keyboardKey,
-      style: "default",
-      data: { targetId }
-    });
-
-    // After opening once, allow re-open later if user taps again (not per keystroke)
-    setTimeout(() => {
-      if (this._keyboardOpenFor === targetId) this._keyboardOpenFor = null;
-    }, 250);
-  },
-
-  _forceHideMMMKeyboard() {
-    // MMM-Keyboard doesn't expose a hide notification. It hides by removing this class.
-    const kbContainer = document.querySelector(".kbContainer");
-    if (kbContainer) kbContainer.classList.remove("show-keyboard");
-
-    const inputDiv = document.getElementById("inputDiv");
-    if (inputDiv) inputDiv.style.display = "none";
-
-    const kbInput = document.getElementById("kbInput");
-    if (kbInput) kbInput.value = "";
-  },
-
   _renderPortal() {
-    if (!this._portal) return;
-
     this._portal.classList.toggle("is-open", !!this._visible);
     this._portal.innerHTML = "";
     if (!this._visible) return;
@@ -249,27 +181,28 @@ Module.register("MMM-HA-AddEvent", {
 
     const form = document.createElement("div");
 
-    // Title
     form.appendChild(this._rowText("Title", "ha_summary", this._current.summary));
-
-    // All-day toggle
     form.appendChild(this._rowAllDayToggle());
 
-    // Time/date rows depend on allDay
     if (this._current.allDay) {
       form.appendChild(this._rowDate("Start Date", "ha_start_date", this._current.startDate));
       form.appendChild(this._rowDate("End Date", "ha_end_date", this._current.endDate));
       const hint = document.createElement("div");
       hint.className = "haHint";
-      hint.textContent = "All-day end date is inclusive here.";
+      hint.textContent = "End date is inclusive here.";
       form.appendChild(hint);
     } else {
       form.appendChild(this._rowDateTime("Start", "ha_start_dt", this._current.startDT));
       form.appendChild(this._rowDateTime("End", "ha_end_dt", this._current.endDT));
     }
 
-    // Notes
     form.appendChild(this._rowTextArea("Notes", "ha_desc", this._current.description));
+
+    // Keyboard container (simple-keyboard)
+    const kbWrap = document.createElement("div");
+    kbWrap.className = "haKbWrap";
+    kbWrap.innerHTML = `<div class="simple-keyboard haKb"></div>`;
+    form.appendChild(kbWrap);
 
     const btnBar = document.createElement("div");
     btnBar.className = "haButtons";
@@ -292,8 +225,14 @@ Module.register("MMM-HA-AddEvent", {
     modal.append(title, form);
     overlay.appendChild(modal);
     root.appendChild(overlay);
-
     this._portal.appendChild(root);
+
+    // ensure keyboard exists after DOM is mounted
+    setTimeout(() => {
+      this._initKeyboardIfNeeded();
+      if (!this._activeField) this._activeField = "ha_summary";
+      this._syncKeyboardToField(this._activeField);
+    }, 0);
   },
 
   _rowBase(label, id) {
@@ -308,6 +247,15 @@ Module.register("MMM-HA-AddEvent", {
     return row;
   },
 
+  _setActiveField(id) {
+    this._activeField = id;
+
+    const el = document.getElementById(id);
+    if (el) el.focus({ preventScroll: true });
+
+    this._syncKeyboardToField(id);
+  },
+
   _rowText(label, id, value) {
     const row = this._rowBase(label, id);
 
@@ -316,11 +264,11 @@ Module.register("MMM-HA-AddEvent", {
     input.id = id;
     input.value = value || "";
 
-    // Tap to open MMM-Keyboard
+    // Use pointerdown so touch works reliably in Electron
     input.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this._openKeyboardForTarget(id);
+      this._setActiveField(id);
     });
 
     input.addEventListener("input", () => {
@@ -341,7 +289,7 @@ Module.register("MMM-HA-AddEvent", {
     ta.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this._openKeyboardForTarget(id);
+      this._setActiveField(id);
     });
 
     ta.addEventListener("input", () => {
@@ -367,17 +315,13 @@ Module.register("MMM-HA-AddEvent", {
     toggle.checked = !!this._current.allDay;
 
     toggle.addEventListener("change", () => {
-      this._forceHideMMMKeyboard();
-
       this._current.allDay = !!toggle.checked;
 
-      // When switching on all-day, derive dates from current startDT
       if (this._current.allDay) {
         const base = this._current.startDT ? String(this._current.startDT).split("T")[0] : this._toDateOnly(new Date());
         this._current.startDate = base;
         this._current.endDate = base;
       } else {
-        // Switching back to timed: default start/end based on now
         const fresh = this._defaultState();
         this._current.startDT = fresh.startDT;
         this._current.endDT = fresh.endDT;
@@ -398,7 +342,6 @@ Module.register("MMM-HA-AddEvent", {
     input.id = id;
     input.value = value || "";
 
-    // Let native picker handle this in Electron touch, do not open MMM-Keyboard
     input.addEventListener("change", () => {
       if (id === "ha_start_dt") this._current.startDT = input.value;
       if (id === "ha_end_dt") this._current.endDT = input.value;
@@ -419,29 +362,99 @@ Module.register("MMM-HA-AddEvent", {
     input.addEventListener("change", () => {
       if (id === "ha_start_date") {
         this._current.startDate = input.value;
-
-        // keep end >= start
         const s = this._parseDateOnly(this._current.startDate);
         const e = this._parseDateOnly(this._current.endDate);
-        if (s && e && e < s) {
-          this._current.endDate = this._current.startDate;
-        }
+        if (s && e && e < s) this._current.endDate = this._current.startDate;
         this._renderPortal();
       }
       if (id === "ha_end_date") {
         this._current.endDate = input.value;
-
         const s = this._parseDateOnly(this._current.startDate);
         const e = this._parseDateOnly(this._current.endDate);
-        if (s && e && e < s) {
-          this._current.endDate = this._current.startDate;
-        }
+        if (s && e && e < s) this._current.endDate = this._current.startDate;
         this._renderPortal();
       }
     });
 
     row.appendChild(input);
     return row;
+  },
+
+  _initKeyboardIfNeeded() {
+    if (this._keyboard) return;
+
+    const KeyboardCtor = window.SimpleKeyboard && window.SimpleKeyboard.default;
+    const kbEl = document.querySelector(".simple-keyboard");
+    if (!KeyboardCtor || !kbEl) return;
+
+    this._keyboard = new KeyboardCtor({
+      onChange: (input) => this._onKbChange(input),
+      onKeyPress: (btn) => this._onKbKeyPress(btn),
+      // Keep it stable, do not auto switch layouts
+      layout: {
+        default: [
+          "1 2 3 4 5 6 7 8 9 0 {bksp}",
+          "q w e r t y u i o p",
+          "a s d f g h j k l",
+          "{shift} z x c v b n m {enter}",
+          "{space} {clear}"
+        ],
+        shift: [
+          "! @ # $ % ^ & * ( ) {bksp}",
+          "Q W E R T Y U I O P",
+          "A S D F G H J K L",
+          "{shift} Z X C V B N M {enter}",
+          "{space} {clear}"
+        ]
+      },
+      display: {
+        "{bksp}": "⌫",
+        "{enter}": "Enter",
+        "{shift}": "Shift",
+        "{space}": "Space",
+        "{clear}": "Clear"
+      }
+    });
+  },
+
+  _syncKeyboardToField(fieldId) {
+    if (!this._keyboard || !fieldId) return;
+    const el = document.getElementById(fieldId);
+    if (!el) return;
+    this._keyboard.setInput(el.value || ""); // keeps keyboard buffer aligned :contentReference[oaicite:2]{index=2}
+  },
+
+  _onKbChange(input) {
+    // Every keypress updates the active field
+    const id = this._activeField;
+    if (!id) return;
+
+    const el = document.getElementById(id);
+    if (!el) return;
+
+    el.value = input;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  },
+
+  _onKbKeyPress(btn) {
+    if (btn === "{shift}") {
+      const current = this._keyboard.options.layoutName || "default";
+      this._keyboard.setOptions({ layoutName: current === "default" ? "shift" : "default" });
+    }
+    if (btn === "{clear}") {
+      this._keyboard.clearInput();
+    }
+    if (btn === "{enter}") {
+      // Optional: jump from Title to Notes on Enter
+      if (this._activeField === "ha_summary") {
+        this._setActiveField("ha_desc");
+      }
+    }
+  },
+
+  _destroyKeyboard() {
+    // simple-keyboard does not require a hard destroy, just drop reference
+    this._keyboard = null;
   },
 
   _submit() {
@@ -465,7 +478,7 @@ Module.register("MMM-HA-AddEvent", {
         return;
       }
 
-      // HA expects end_date to be exclusive, so add 1 day to inclusive UI endDate
+      // end_date is exclusive for true all-day behavior in many calendar backends
       const endExclusive = this._addDaysDateOnly(this._current.endDate, 1);
 
       this.sendSocketNotification("CREATE_EVENT", {
@@ -476,14 +489,11 @@ Module.register("MMM-HA-AddEvent", {
         end_date: endExclusive
       });
 
-      this._forceHideMMMKeyboard();
       return;
     }
 
-    // Timed event
     const start = new Date(this._current.startDT);
     const end = new Date(this._current.endDT);
-
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
       alert("End time must be after start time.");
       return;
@@ -496,8 +506,6 @@ Module.register("MMM-HA-AddEvent", {
       start_date_time: new Date(this._current.startDT).toISOString(),
       end_date_time: new Date(this._current.endDT).toISOString()
     });
-
-    this._forceHideMMMKeyboard();
   },
 
   socketNotificationReceived(notification, payload) {
