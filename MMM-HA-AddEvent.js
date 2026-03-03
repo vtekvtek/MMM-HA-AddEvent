@@ -3,17 +3,19 @@
 Module.register("MMM-HA-AddEvent", {
   defaults: {
     buttonText: "Add Event",
+    calendarTitle: "Add Family Event",
+
+    // MMM-Keyboard (lavolp3) integration
     keyboardKey: "MMM-HA-AddEvent",
-    keyboardStyle: "default",
+    keyboardStyle: "default", // keep "default" for text entry
+
+    // UI defaults
+    defaultDurationMinutes: 30,
+    minuteRounding: 5
   },
 
   start() {
     this._visible = false;
-    this._activeTargetId = null;
-
-    // keyboard session tracking
-    this._keyboardVisible = false;
-    this._keyboardFor = null;
 
     this._portal = document.getElementById("HA_EVENTADD_PORTAL");
     if (!this._portal) {
@@ -22,15 +24,10 @@ Module.register("MMM-HA-AddEvent", {
       document.body.appendChild(this._portal);
     }
 
-    this._current = {
-      summary: "",
-      description: "",
-      start: "",
-      end: "",
-      allDay: false,
-      date: "",
-      endDate: "",
-    };
+    this._activeTargetId = null;
+    this._keyboardOpenFor = null;
+
+    this._current = this._blankState();
 
     this.sendSocketNotification("CONFIG", this.config);
     this._renderPortal();
@@ -45,11 +42,11 @@ Module.register("MMM-HA-AddEvent", {
     wrap.className = "haAddWrap";
 
     const row = document.createElement("div");
-    row.className = "haAddRow";
+    row.className = "haAddRow isAccent";
 
-    const inner = document.createElement("div");
-    inner.className = "haAddButton";
-    inner.onclick = () => this.open();
+    const btn = document.createElement("div");
+    btn.className = "haAddButton";
+    btn.tabIndex = 0;
 
     const left = document.createElement("div");
     left.className = "haAddTitleWrap";
@@ -57,6 +54,7 @@ Module.register("MMM-HA-AddEvent", {
     const label = document.createElement("div");
     label.className = "haAddLabel";
     label.textContent = this.config.buttonText || "Add Event";
+
     left.appendChild(label);
 
     const right = document.createElement("div");
@@ -64,108 +62,166 @@ Module.register("MMM-HA-AddEvent", {
 
     const hint = document.createElement("div");
     hint.className = "haAddHint";
-    hint.textContent = "Tap to create";
+    hint.textContent = "Tap to open";
+
     right.appendChild(hint);
 
-    inner.append(left, right);
-    row.appendChild(inner);
-    wrap.appendChild(row);
-
-    return wrap;
-  },
-
-  _hideKeyboard() {
-    this._activeTargetId = null;
-    this._keyboardVisible = false;
-    this._keyboardFor = null;
-
-    this.sendNotification("KEYBOARD_HIDE");
-    this.sendNotification("HIDE_KEYBOARD");
-    this.sendNotification("CLOSE_KEYBOARD");
-    this.sendNotification("KEYBOARD", { key: this.config.keyboardKey, action: "hide" });
-  },
-
-  _showKeyboardFor(targetId) {
-    // Only show once per focus session, prevents layout toggling
-    if (this._keyboardVisible && this._keyboardFor === targetId) return;
-
-    this._keyboardVisible = true;
-    this._keyboardFor = targetId;
-    this._activeTargetId = targetId;
-
-    this.sendNotification("KEYBOARD", {
-      key: this.config.keyboardKey,
-      style: this.config.keyboardStyle || "default",
-      data: { targetId },
+    btn.append(left, right);
+    btn.addEventListener("click", () => this.open());
+    btn.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        this.open();
+      }
     });
+
+    row.appendChild(btn);
+    wrap.appendChild(row);
+    return wrap;
   },
 
   notificationReceived(notification, payload) {
     if (notification !== "KEYBOARD_INPUT") return;
     if (!payload || payload.key !== this.config.keyboardKey) return;
 
-    const targetId = payload.data?.targetId;
-    if (!targetId) return;
+    const targetId = payload.data && payload.data.targetId ? payload.data.targetId : this._activeTargetId;
+    const message = payload.message != null ? String(payload.message) : "";
 
+    if (!targetId) return;
     const el = document.getElementById(targetId);
     if (!el) return;
 
-    const nextValue = String(payload.message ?? "");
-    el.value = nextValue;
+    el.value = message;
     el.dispatchEvent(new Event("input", { bubbles: true }));
-
-    // Important: NO refocus, NO selection forcing
-    // Electron caret issues often come from focus being stolen.
   },
 
   open() {
-    const now = new Date();
-    now.setSeconds(0, 0);
-    const mins = now.getMinutes();
-    const rounded = Math.ceil(mins / 5) * 5;
-    now.setMinutes(rounded);
-
-    const end = new Date(now.getTime() + 30 * 60 * 1000);
-    const dateOnly = this._toDateOnly(now);
-
-    this._current = {
-      summary: "",
-      description: "",
-      start: this._toDateTimeLocal(now),
-      end: this._toDateTimeLocal(end),
-      allDay: false,
-      date: dateOnly,
-      endDate: dateOnly,
-    };
-
+    this._current = this._defaultState();
     this._visible = true;
+    this._activeTargetId = null;
+    this._keyboardOpenFor = null;
+
     this._renderPortal();
+
+    setTimeout(() => {
+      const el = document.getElementById("ha_summary");
+      if (el) el.focus({ preventScroll: true });
+    }, 0);
   },
 
   close() {
-    // Hide keyboard first so it doesn't linger after DOM removal
-    this._hideKeyboard();
     this._visible = false;
+    this._activeTargetId = null;
+    this._keyboardOpenFor = null;
+
+    this._forceHideMMMKeyboard();
     this._renderPortal();
   },
 
-  _pad(x) {
-    return String(x).padStart(2, "0");
+  _blankState() {
+    return {
+      summary: "",
+      description: "",
+      allDay: false,
+
+      // timed mode
+      startDT: "",
+      endDT: "",
+
+      // all-day mode (date-only)
+      startDate: "",
+      endDate: ""
+    };
+  },
+
+  _defaultState() {
+    const now = new Date();
+    now.setSeconds(0, 0);
+
+    const round = Math.max(1, Number(this.config.minuteRounding) || 5);
+    const mins = now.getMinutes();
+    const rounded = Math.ceil(mins / round) * round;
+    now.setMinutes(rounded);
+
+    const duration = Math.max(5, Number(this.config.defaultDurationMinutes) || 30);
+    const end = new Date(now.getTime() + duration * 60 * 1000);
+
+    const startDT = this._toDateTimeLocal(now);
+    const endDT = this._toDateTimeLocal(end);
+
+    const startDate = this._toDateOnly(now);
+    const endDate = startDate; // inclusive in UI
+
+    return {
+      summary: "",
+      description: "",
+      allDay: false,
+      startDT,
+      endDT,
+      startDate,
+      endDate
+    };
   },
 
   _toDateTimeLocal(d) {
-    return `${d.getFullYear()}-${this._pad(d.getMonth() + 1)}-${this._pad(d.getDate())}T${this._pad(d.getHours())}:${this._pad(d.getMinutes())}`;
+    const pad = (x) => String(x).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   },
 
   _toDateOnly(d) {
-    return `${d.getFullYear()}-${this._pad(d.getMonth() + 1)}-${this._pad(d.getDate())}`;
+    const pad = (x) => String(x).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  },
+
+  _parseDateOnly(str) {
+    // expects YYYY-MM-DD
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(str || ""));
+    if (!m) return null;
+    const y = Number(m[1]);
+    const mo = Number(m[2]) - 1;
+    const da = Number(m[3]);
+    const dt = new Date(y, mo, da, 0, 0, 0, 0);
+    return Number.isNaN(dt.getTime()) ? null : dt;
   },
 
   _addDaysDateOnly(dateStr, days) {
-    const d = new Date(`${dateStr}T00:00:00`);
-    if (isNaN(d.getTime())) return "";
-    d.setDate(d.getDate() + days);
-    return this._toDateOnly(d);
+    const dt = this._parseDateOnly(dateStr);
+    if (!dt) return "";
+    dt.setDate(dt.getDate() + Number(days || 0));
+    return this._toDateOnly(dt);
+  },
+
+  _openKeyboardForTarget(targetId) {
+    if (!targetId) return;
+
+    // prevent reopen loops if keyboard already opened for this field
+    if (this._keyboardOpenFor === targetId) return;
+
+    this._activeTargetId = targetId;
+    this._keyboardOpenFor = targetId;
+
+    this.sendNotification("KEYBOARD", {
+      key: this.config.keyboardKey,
+      style: "default",
+      data: { targetId }
+    });
+
+    // After opening once, allow re-open later if user taps again (not per keystroke)
+    setTimeout(() => {
+      if (this._keyboardOpenFor === targetId) this._keyboardOpenFor = null;
+    }, 250);
+  },
+
+  _forceHideMMMKeyboard() {
+    // MMM-Keyboard doesn't expose a hide notification. It hides by removing this class.
+    const kbContainer = document.querySelector(".kbContainer");
+    if (kbContainer) kbContainer.classList.remove("show-keyboard");
+
+    const inputDiv = document.getElementById("inputDiv");
+    if (inputDiv) inputDiv.style.display = "none";
+
+    const kbInput = document.getElementById("kbInput");
+    if (kbInput) kbInput.value = "";
   },
 
   _renderPortal() {
@@ -180,31 +236,40 @@ Module.register("MMM-HA-AddEvent", {
 
     const overlay = document.createElement("div");
     overlay.className = "haOverlay";
-    overlay.onclick = (e) => {
+    overlay.addEventListener("click", (e) => {
       if (e.target === overlay) this.close();
-    };
+    });
 
     const modal = document.createElement("div");
     modal.className = "haModal";
 
     const title = document.createElement("div");
     title.className = "haTitle";
-    title.textContent = "Add Family Event";
+    title.textContent = this.config.calendarTitle || "Add Event";
 
     const form = document.createElement("div");
 
-    form.appendChild(this._row("Title", "text", "ha_summary", this._current.summary, true));
-    form.appendChild(this._allDayRow());
+    // Title
+    form.appendChild(this._rowText("Title", "ha_summary", this._current.summary));
 
+    // All-day toggle
+    form.appendChild(this._rowAllDayToggle());
+
+    // Time/date rows depend on allDay
     if (this._current.allDay) {
-      form.appendChild(this._row("Start Date", "date", "ha_date", this._current.date, false));
-      form.appendChild(this._row("End Date", "date", "ha_endDate", this._current.endDate, false));
+      form.appendChild(this._rowDate("Start Date", "ha_start_date", this._current.startDate));
+      form.appendChild(this._rowDate("End Date", "ha_end_date", this._current.endDate));
+      const hint = document.createElement("div");
+      hint.className = "haHint";
+      hint.textContent = "All-day end date is inclusive here.";
+      form.appendChild(hint);
     } else {
-      form.appendChild(this._row("Start", "datetime-local", "ha_start", this._current.start, false));
-      form.appendChild(this._row("End", "datetime-local", "ha_end", this._current.end, false));
+      form.appendChild(this._rowDateTime("Start", "ha_start_dt", this._current.startDT));
+      form.appendChild(this._rowDateTime("End", "ha_end_dt", this._current.endDT));
     }
 
-    form.appendChild(this._rowTextArea("Notes", "ha_desc", this._current.description, true));
+    // Notes
+    form.appendChild(this._rowTextArea("Notes", "ha_desc", this._current.description));
 
     const btnBar = document.createElement("div");
     btnBar.className = "haButtons";
@@ -213,13 +278,13 @@ Module.register("MMM-HA-AddEvent", {
     cancel.className = "haBtn cancel";
     cancel.type = "button";
     cancel.textContent = "Cancel";
-    cancel.onclick = () => this.close();
+    cancel.addEventListener("click", () => this.close());
 
     const save = document.createElement("button");
     save.className = "haBtn save";
     save.type = "button";
     save.textContent = "Save";
-    save.onclick = () => this._submit();
+    save.addEventListener("click", () => this._submit());
 
     btnBar.append(cancel, save);
     form.appendChild(btnBar);
@@ -229,44 +294,9 @@ Module.register("MMM-HA-AddEvent", {
     root.appendChild(overlay);
 
     this._portal.appendChild(root);
-
-    // Focus title after modal appears, but do not open keyboard here
-    setTimeout(() => {
-      const el = document.getElementById("ha_summary");
-      if (el) el.focus();
-    }, 0);
   },
 
-  _allDayRow() {
-    const row = document.createElement("div");
-    row.className = "haRowInline";
-
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.className = "haCheck";
-    cb.checked = !!this._current.allDay;
-
-    cb.onchange = () => {
-      this._current.allDay = cb.checked;
-      if (this._current.allDay) {
-        this._hideKeyboard();
-      }
-      this._renderPortal();
-    };
-
-    const label = document.createElement("div");
-    label.className = "haInlineLabel";
-    label.textContent = "All Day Event";
-    label.onclick = () => {
-      cb.checked = !cb.checked;
-      cb.dispatchEvent(new Event("change"));
-    };
-
-    row.append(cb, label);
-    return row;
-  },
-
-  _row(label, type, id, value, useKeyboard) {
+  _rowBase(label, id) {
     const row = document.createElement("div");
     row.className = "haRow";
 
@@ -274,143 +304,210 @@ Module.register("MMM-HA-AddEvent", {
     l.textContent = label;
     l.htmlFor = id;
 
+    row.appendChild(l);
+    return row;
+  },
+
+  _rowText(label, id, value) {
+    const row = this._rowBase(label, id);
+
     const input = document.createElement("input");
-    input.type = type;
+    input.type = "text";
     input.id = id;
     input.value = value || "";
 
-    input.addEventListener("input", () => {
-      if (id === "ha_summary") this._current.summary = input.value;
-      if (id === "ha_start") this._current.start = input.value;
-      if (id === "ha_end") this._current.end = input.value;
-      if (id === "ha_date") this._current.date = input.value;
-      if (id === "ha_endDate") this._current.endDate = input.value;
+    // Tap to open MMM-Keyboard
+    input.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._openKeyboardForTarget(id);
     });
 
-    if (useKeyboard && type === "text") {
-      input.addEventListener("focus", () => this._showKeyboardFor(id));
-      input.addEventListener("blur", () => {
-        setTimeout(() => {
-          const ae = document.activeElement;
-          const stillText =
-            ae &&
-            ((ae.tagName === "INPUT" && ae.type === "text") ||
-              ae.tagName === "TEXTAREA");
-          if (!stillText) this._hideKeyboard();
-        }, 50);
-      });
-    } else {
-      // moving to any non-text input means keyboard should hide
-      input.addEventListener("focus", () => this._hideKeyboard());
-      input.addEventListener("pointerdown", () => this._hideKeyboard());
-    }
+    input.addEventListener("input", () => {
+      if (id === "ha_summary") this._current.summary = input.value;
+    });
 
-    // Open native picker immediately
-    if (type === "datetime-local" || type === "date") {
-      const show = () => {
-        this._hideKeyboard();
-        if (typeof input.showPicker === "function") input.showPicker();
-      };
-      input.addEventListener("pointerdown", show);
-      input.addEventListener("focus", show);
-    }
-
-    row.append(l, input);
+    row.appendChild(input);
     return row;
   },
 
-  _rowTextArea(label, id, value, useKeyboard) {
-    const row = document.createElement("div");
-    row.className = "haRow";
-
-    const l = document.createElement("label");
-    l.textContent = label;
-    l.htmlFor = id;
+  _rowTextArea(label, id, value) {
+    const row = this._rowBase(label, id);
 
     const ta = document.createElement("textarea");
     ta.id = id;
     ta.value = value || "";
 
+    ta.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._openKeyboardForTarget(id);
+    });
+
     ta.addEventListener("input", () => {
       this._current.description = ta.value;
     });
 
-    if (useKeyboard) {
-      ta.addEventListener("focus", () => this._showKeyboardFor(id));
-      ta.addEventListener("blur", () => {
-        setTimeout(() => {
-          const ae = document.activeElement;
-          const stillText =
-            ae &&
-            ((ae.tagName === "INPUT" && ae.type === "text") ||
-              ae.tagName === "TEXTAREA");
-          if (!stillText) this._hideKeyboard();
-        }, 50);
-      });
-    }
+    row.appendChild(ta);
+    return row;
+  },
 
-    row.append(l, ta);
+  _rowAllDayToggle() {
+    const row = document.createElement("div");
+    row.className = "haRow haRowInline";
+
+    const l = document.createElement("label");
+    l.className = "haInlineLabel";
+    l.textContent = "All-day";
+    l.htmlFor = "ha_allday";
+
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.id = "ha_allday";
+    toggle.checked = !!this._current.allDay;
+
+    toggle.addEventListener("change", () => {
+      this._forceHideMMMKeyboard();
+
+      this._current.allDay = !!toggle.checked;
+
+      // When switching on all-day, derive dates from current startDT
+      if (this._current.allDay) {
+        const base = this._current.startDT ? String(this._current.startDT).split("T")[0] : this._toDateOnly(new Date());
+        this._current.startDate = base;
+        this._current.endDate = base;
+      } else {
+        // Switching back to timed: default start/end based on now
+        const fresh = this._defaultState();
+        this._current.startDT = fresh.startDT;
+        this._current.endDT = fresh.endDT;
+      }
+
+      this._renderPortal();
+    });
+
+    row.append(l, toggle);
+    return row;
+  },
+
+  _rowDateTime(label, id, value) {
+    const row = this._rowBase(label, id);
+
+    const input = document.createElement("input");
+    input.type = "datetime-local";
+    input.id = id;
+    input.value = value || "";
+
+    // Let native picker handle this in Electron touch, do not open MMM-Keyboard
+    input.addEventListener("change", () => {
+      if (id === "ha_start_dt") this._current.startDT = input.value;
+      if (id === "ha_end_dt") this._current.endDT = input.value;
+    });
+
+    row.appendChild(input);
+    return row;
+  },
+
+  _rowDate(label, id, value) {
+    const row = this._rowBase(label, id);
+
+    const input = document.createElement("input");
+    input.type = "date";
+    input.id = id;
+    input.value = value || "";
+
+    input.addEventListener("change", () => {
+      if (id === "ha_start_date") {
+        this._current.startDate = input.value;
+
+        // keep end >= start
+        const s = this._parseDateOnly(this._current.startDate);
+        const e = this._parseDateOnly(this._current.endDate);
+        if (s && e && e < s) {
+          this._current.endDate = this._current.startDate;
+        }
+        this._renderPortal();
+      }
+      if (id === "ha_end_date") {
+        this._current.endDate = input.value;
+
+        const s = this._parseDateOnly(this._current.startDate);
+        const e = this._parseDateOnly(this._current.endDate);
+        if (s && e && e < s) {
+          this._current.endDate = this._current.startDate;
+        }
+        this._renderPortal();
+      }
+    });
+
+    row.appendChild(input);
     return row;
   },
 
   _submit() {
-    const summary = this._current.summary.trim();
-    const description = this._current.description.trim();
+    const summary = (this._current.summary || "").trim();
+    const description = (this._current.description || "").trim();
 
     if (!summary) {
-      alert("Please enter a title.");
+      alert("Title is required.");
       return;
     }
 
     if (this._current.allDay) {
-      const start_date = this._current.date;
-      const endDateInclusive = this._current.endDate || start_date;
-
-      if (!start_date) {
-        alert("Please choose a start date.");
+      const s = this._parseDateOnly(this._current.startDate);
+      const e = this._parseDateOnly(this._current.endDate);
+      if (!s || !e) {
+        alert("Start Date and End Date are required.");
+        return;
+      }
+      if (e < s) {
+        alert("End Date must be on or after Start Date.");
         return;
       }
 
-      const startD = new Date(`${start_date}T00:00:00`);
-      const endD = new Date(`${endDateInclusive}T00:00:00`);
-      if (isNaN(startD.getTime()) || isNaN(endD.getTime()) || endD < startD) {
-        alert("End date must be the same or after start date.");
-        return;
-      }
-
-      // end_date exclusive
-      const end_date = this._addDaysDateOnly(endDateInclusive, 1);
+      // HA expects end_date to be exclusive, so add 1 day to inclusive UI endDate
+      const endExclusive = this._addDaysDateOnly(this._current.endDate, 1);
 
       this.sendSocketNotification("CREATE_EVENT", {
+        allDay: true,
         summary,
         description,
-        start_date,
-        end_date,
+        start_date: this._current.startDate,
+        end_date: endExclusive
       });
 
-      this.close();
+      this._forceHideMMMKeyboard();
       return;
     }
 
-    const start = new Date(this._current.start);
-    const end = new Date(this._current.end);
-    if (isNaN(start.getTime()) || isNaN(end.getTime()) || end <= start) {
+    // Timed event
+    const start = new Date(this._current.startDT);
+    const end = new Date(this._current.endDT);
+
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
       alert("End time must be after start time.");
       return;
     }
 
     this.sendSocketNotification("CREATE_EVENT", {
+      allDay: false,
       summary,
       description,
-      start_date_time: new Date(this._current.start).toISOString(),
-      end_date_time: new Date(this._current.end).toISOString(),
+      start_date_time: new Date(this._current.startDT).toISOString(),
+      end_date_time: new Date(this._current.endDT).toISOString()
     });
 
-    this.close();
+    this._forceHideMMMKeyboard();
   },
 
   socketNotificationReceived(notification, payload) {
     if (notification !== "RESULT") return;
-    if (!payload.ok) alert(`Failed: ${payload.error || "unknown error"}`);
-  },
+
+    if (payload && payload.ok) {
+      this.close();
+    } else {
+      const msg = payload && payload.error ? payload.error : "unknown error";
+      alert(`Failed: ${msg}`);
+    }
+  }
 });
