@@ -483,7 +483,6 @@ Module.register("MMM-HA-AddEvent", {
     if (r.saveBtn) r.saveBtn.disabled = !!disabled;
     if (r.cancelBtn) r.cancelBtn.disabled = !!disabled;
 
-    // keep modal visible but stop random taps while saving
     if (r.modal) r.modal.style.pointerEvents = disabled ? "none" : "auto";
   },
 
@@ -509,7 +508,6 @@ Module.register("MMM-HA-AddEvent", {
     const el = document.getElementById(id);
     if (el) el.focus({ preventScroll: true });
 
-    // First-letter-only caps on field switch
     this._autoCapNext = true;
     this._shiftOneShot = false;
     this._pendingOneShotReset = false;
@@ -698,7 +696,6 @@ Module.register("MMM-HA-AddEvent", {
 
       const endExclusive = this._addDaysDateOnly(this._current.endDate, 1);
 
-      // Start saving UX
       this._isSaving = true;
       this._status = "Saving to calendar…";
       this._setFormDisabled(true);
@@ -722,7 +719,6 @@ Module.register("MMM-HA-AddEvent", {
       return;
     }
 
-    // Start saving UX
     this._isSaving = true;
     this._status = "Saving to calendar…";
     this._setFormDisabled(true);
@@ -756,6 +752,12 @@ Module.register("MMM-HA-AddEvent", {
     if (payload && payload.ok) {
       this._status = "Saved!";
       this._renderStatus();
+
+      // IMPORTANT: tell the default calendar module to refetch this URL
+      // This path uses the calendar module's own identifier logic
+      this.sendNotification("FETCH_CALENDAR", {
+        url: this.config.calendarIcsUrl
+      });
 
       // Optional: nudge CalendarExt3 redraw
       this.sendNotification("CX3_SET_CONFIG", {
