@@ -18,37 +18,9 @@ module.exports = NodeHelper.create({
       return;
     }
 
-    const summary = String(payload?.summary ?? "").trim();
-    const description = String(payload?.description ?? "").trim();
-
-    // New UI sends full timestamps already:
-    // start_date_time, end_date_time (ISO strings)
-    const start_date_time = payload?.start_date_time;
-    const end_date_time = payload?.end_date_time;
-
-    if (!summary || !start_date_time || !end_date_time) {
-      this.sendSocketNotification("RESULT", { ok: false, error: "Missing fields" });
-      return;
-    }
-
-    // Basic sanity: end after start
-    const startMs = Date.parse(start_date_time);
-    const endMs = Date.parse(end_date_time);
-
-    if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
-      this.sendSocketNotification("RESULT", { ok: false, error: "Invalid date/time format" });
-      return;
-    }
-
-    if (endMs <= startMs) {
-      this.sendSocketNotification("RESULT", { ok: false, error: "End time must be after start time" });
-      return;
-    }
-
-    // Prefer config calendarEntityId, fallback to calendar.family if omitted
-    const entityId = this.cfg.calendarEntityId || "calendar.family";
     const haUrl = String(this.cfg.haUrl || "").replace(/\/+$/, "");
     const token = this.cfg.haToken;
+    const entityId = this.cfg.calendarEntityId || "calendar.family";
 
     if (!haUrl) {
       this.sendSocketNotification("RESULT", { ok: false, error: "Missing haUrl in config" });
@@ -59,30 +31,66 @@ module.exports = NodeHelper.create({
       return;
     }
 
-    const url = `${haUrl}/api/services/calendar/create_event`;
+    const summary = String(payload?.summary ?? "").trim();
+    const description = String(payload?.description ?? "").trim();
+
+    if (!summary) {
+      this.sendSocketNotification("RESULT", { ok: false, error: "Missing title" });
+      return;
+    }
+
+    // Support timed or all-day payloads
+    const hasTimed = payload?.start_date_time && payload?.end_date_time;
+    const hasAllDay = payload?.start_date && payload?.end_date;
+
+    if (!hasTimed && !hasAllDay) {
+      this.sendSocketNotification("RESULT", { ok: false, error: "Missing date fields" });
+      return;
+    }
+
     const body = {
       entity_id: entityId,
       summary,
       description,
-      start_date_time,
-      end_date_time
     };
+
+    if (hasAllDay) {
+      body.start_date = String(payload.start_date);
+      body.end_date = String(payload.end_date);
+    } else {
+      const startMs = Date.parse(payload.start_date_time);
+      const endMs = Date.parse(payload.end_date_time);
+
+      if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+        this.sendSocketNotification("RESULT", { ok: false, error: "Invalid date/time format" });
+        return;
+      }
+      if (endMs <= startMs) {
+        this.sendSocketNotification("RESULT", { ok: false, error: "End time must be after start time" });
+        return;
+      }
+
+      body.start_date_time = payload.start_date_time;
+      body.end_date_time = payload.end_date_time;
+    }
+
+    const url = `${haUrl}/api/services/calendar/create_event`;
 
     try {
       const res = await fetch(url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
         this.sendSocketNotification("RESULT", {
           ok: false,
-          error: `${res.status} ${txt || res.statusText || "Request failed"}`
+          error: `${res.status} ${txt || res.statusText || "Request failed"}`,
         });
         return;
       }
@@ -91,5 +99,5 @@ module.exports = NodeHelper.create({
     } catch (e) {
       this.sendSocketNotification("RESULT", { ok: false, error: e?.message || String(e) });
     }
-  }
+  },
 });
