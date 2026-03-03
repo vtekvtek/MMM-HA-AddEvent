@@ -9,12 +9,11 @@ Module.register("MMM-HA-AddEvent", {
 
   start() {
     this._visible = false;
-
-    this._caretPos = {};
     this._activeTargetId = null;
 
-    // Prevent repeated "show keyboard" calls from toggling layouts
-    this._keyboardOpenFor = null;
+    // keyboard session tracking
+    this._keyboardVisible = false;
+    this._keyboardFor = null;
 
     this._portal = document.getElementById("HA_EVENTADD_PORTAL");
     if (!this._portal) {
@@ -58,7 +57,6 @@ Module.register("MMM-HA-AddEvent", {
     const label = document.createElement("div");
     label.className = "haAddLabel";
     label.textContent = this.config.buttonText || "Add Event";
-
     left.appendChild(label);
 
     const right = document.createElement("div");
@@ -67,7 +65,6 @@ Module.register("MMM-HA-AddEvent", {
     const hint = document.createElement("div");
     hint.className = "haAddHint";
     hint.textContent = "Tap to create";
-
     right.appendChild(hint);
 
     inner.append(left, right);
@@ -79,25 +76,26 @@ Module.register("MMM-HA-AddEvent", {
 
   _hideKeyboard() {
     this._activeTargetId = null;
-    this._keyboardOpenFor = null;
+    this._keyboardVisible = false;
+    this._keyboardFor = null;
 
-    // Broad compatibility across forks
     this.sendNotification("KEYBOARD_HIDE");
     this.sendNotification("HIDE_KEYBOARD");
     this.sendNotification("CLOSE_KEYBOARD");
     this.sendNotification("KEYBOARD", { key: this.config.keyboardKey, action: "hide" });
   },
 
-  _openKeyboardForTarget(targetId, styleOverride) {
-    // Guard: avoid repeated show calls that can toggle layout to numbers
-    if (this._keyboardOpenFor === targetId) return;
+  _showKeyboardFor(targetId) {
+    // Only show once per focus session, prevents layout toggling
+    if (this._keyboardVisible && this._keyboardFor === targetId) return;
 
+    this._keyboardVisible = true;
+    this._keyboardFor = targetId;
     this._activeTargetId = targetId;
-    this._keyboardOpenFor = targetId;
 
     this.sendNotification("KEYBOARD", {
       key: this.config.keyboardKey,
-      style: styleOverride || this.config.keyboardStyle || "default",
+      style: this.config.keyboardStyle || "default",
       data: { targetId },
     });
   },
@@ -107,33 +105,17 @@ Module.register("MMM-HA-AddEvent", {
     if (!payload || payload.key !== this.config.keyboardKey) return;
 
     const targetId = payload.data?.targetId;
-    const message = payload.message ?? "";
     if (!targetId) return;
 
     const el = document.getElementById(targetId);
     if (!el) return;
 
-    const nextValue = String(message);
-
-    const desired = this._caretPos[targetId];
-    const caret =
-      typeof desired === "number"
-        ? Math.min(desired, nextValue.length)
-        : nextValue.length;
-
+    const nextValue = String(payload.message ?? "");
     el.value = nextValue;
     el.dispatchEvent(new Event("input", { bubbles: true }));
 
-    if (this._activeTargetId === targetId) {
-      requestAnimationFrame(() => {
-        try {
-          el.focus();
-          if (typeof el.setSelectionRange === "function") {
-            el.setSelectionRange(caret, caret);
-          }
-        } catch (e) {}
-      });
-    }
+    // Important: NO refocus, NO selection forcing
+    // Electron caret issues often come from focus being stolen.
   },
 
   open() {
@@ -144,7 +126,6 @@ Module.register("MMM-HA-AddEvent", {
     now.setMinutes(rounded);
 
     const end = new Date(now.getTime() + 30 * 60 * 1000);
-
     const dateOnly = this._toDateOnly(now);
 
     this._current = {
@@ -159,17 +140,11 @@ Module.register("MMM-HA-AddEvent", {
 
     this._visible = true;
     this._renderPortal();
-
-    setTimeout(() => {
-      const el = document.getElementById("ha_summary");
-      if (el) el.focus();
-    }, 0);
   },
 
   close() {
-    // Hide keyboard first, then remove modal DOM
+    // Hide keyboard first so it doesn't linger after DOM removal
     this._hideKeyboard();
-
     this._visible = false;
     this._renderPortal();
   },
@@ -179,15 +154,11 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   _toDateTimeLocal(d) {
-    return `${d.getFullYear()}-${this._pad(d.getMonth() + 1)}-${this._pad(
-      d.getDate()
-    )}T${this._pad(d.getHours())}:${this._pad(d.getMinutes())}`;
+    return `${d.getFullYear()}-${this._pad(d.getMonth() + 1)}-${this._pad(d.getDate())}T${this._pad(d.getHours())}:${this._pad(d.getMinutes())}`;
   },
 
   _toDateOnly(d) {
-    return `${d.getFullYear()}-${this._pad(d.getMonth() + 1)}-${this._pad(
-      d.getDate()
-    )}`;
+    return `${d.getFullYear()}-${this._pad(d.getMonth() + 1)}-${this._pad(d.getDate())}`;
   },
 
   _addDaysDateOnly(dateStr, days) {
@@ -216,47 +187,24 @@ Module.register("MMM-HA-AddEvent", {
     const modal = document.createElement("div");
     modal.className = "haModal";
 
-    // Hide keyboard when tapping anything that isn't a text field
-    modal.addEventListener("pointerdown", (e) => {
-      const t = e.target;
-      const isTextField =
-        t &&
-        ((t.tagName === "INPUT" && t.type === "text") ||
-          t.tagName === "TEXTAREA");
-      if (!isTextField) this._hideKeyboard();
-    });
-
     const title = document.createElement("div");
     title.className = "haTitle";
     title.textContent = "Add Family Event";
 
     const form = document.createElement("div");
 
-    form.appendChild(
-      this._row("Title", "text", "ha_summary", this._current.summary, true)
-    );
-
+    form.appendChild(this._row("Title", "text", "ha_summary", this._current.summary, true));
     form.appendChild(this._allDayRow());
 
     if (this._current.allDay) {
-      form.appendChild(
-        this._row("Start Date", "date", "ha_date", this._current.date, false)
-      );
-      form.appendChild(
-        this._row("End Date", "date", "ha_endDate", this._current.endDate, false)
-      );
+      form.appendChild(this._row("Start Date", "date", "ha_date", this._current.date, false));
+      form.appendChild(this._row("End Date", "date", "ha_endDate", this._current.endDate, false));
     } else {
-      form.appendChild(
-        this._row("Start", "datetime-local", "ha_start", this._current.start, false)
-      );
-      form.appendChild(
-        this._row("End", "datetime-local", "ha_end", this._current.end, false)
-      );
+      form.appendChild(this._row("Start", "datetime-local", "ha_start", this._current.start, false));
+      form.appendChild(this._row("End", "datetime-local", "ha_end", this._current.end, false));
     }
 
-    form.appendChild(
-      this._rowTextArea("Notes", "ha_desc", this._current.description, true)
-    );
+    form.appendChild(this._rowTextArea("Notes", "ha_desc", this._current.description, true));
 
     const btnBar = document.createElement("div");
     btnBar.className = "haButtons";
@@ -281,6 +229,12 @@ Module.register("MMM-HA-AddEvent", {
     root.appendChild(overlay);
 
     this._portal.appendChild(root);
+
+    // Focus title after modal appears, but do not open keyboard here
+    setTimeout(() => {
+      const el = document.getElementById("ha_summary");
+      if (el) el.focus();
+    }, 0);
   },
 
   _allDayRow() {
@@ -294,15 +248,9 @@ Module.register("MMM-HA-AddEvent", {
 
     cb.onchange = () => {
       this._current.allDay = cb.checked;
-
       if (this._current.allDay) {
-        const d = new Date(this._current.start);
-        const dateOnly = !isNaN(d.getTime()) ? this._toDateOnly(d) : this._current.date;
-        this._current.date = dateOnly || this._toDateOnly(new Date());
-        this._current.endDate = this._current.endDate || this._current.date;
         this._hideKeyboard();
       }
-
       this._renderPortal();
     };
 
@@ -339,32 +287,8 @@ Module.register("MMM-HA-AddEvent", {
       if (id === "ha_endDate") this._current.endDate = input.value;
     });
 
-    // Save caret AFTER Electron places it
-    const saveCaret = () => {
-      if (typeof input.selectionStart === "number") {
-        this._caretPos[id] = input.selectionStart;
-      }
-    };
-    input.addEventListener("pointerup", () => setTimeout(saveCaret, 0));
-    input.addEventListener("click", () => setTimeout(saveCaret, 0));
-    input.addEventListener("keyup", saveCaret);
-    input.addEventListener("select", saveCaret);
-
-    // Text fields: mark active on pointerdown, open keyboard on pointerup
-    // This is the Electron fix: let caret settle first, then show keyboard
     if (useKeyboard && type === "text") {
-      input.addEventListener("pointerdown", () => {
-        this._activeTargetId = id;
-      });
-
-      input.addEventListener("pointerup", () => {
-        setTimeout(() => {
-          // capture caret after Electron sets it
-          saveCaret();
-          this._openKeyboardForTarget(id, "default");
-        }, 0);
-      });
-
+      input.addEventListener("focus", () => this._showKeyboardFor(id));
       input.addEventListener("blur", () => {
         setTimeout(() => {
           const ae = document.activeElement;
@@ -373,11 +297,15 @@ Module.register("MMM-HA-AddEvent", {
             ((ae.tagName === "INPUT" && ae.type === "text") ||
               ae.tagName === "TEXTAREA");
           if (!stillText) this._hideKeyboard();
-        }, 60);
+        }, 50);
       });
+    } else {
+      // moving to any non-text input means keyboard should hide
+      input.addEventListener("focus", () => this._hideKeyboard());
+      input.addEventListener("pointerdown", () => this._hideKeyboard());
     }
 
-    // Date/time pickers: hide keyboard and show picker
+    // Open native picker immediately
     if (type === "datetime-local" || type === "date") {
       const show = () => {
         this._hideKeyboard();
@@ -407,28 +335,8 @@ Module.register("MMM-HA-AddEvent", {
       this._current.description = ta.value;
     });
 
-    const saveCaret = () => {
-      if (typeof ta.selectionStart === "number") {
-        this._caretPos[id] = ta.selectionStart;
-      }
-    };
-    ta.addEventListener("pointerup", () => setTimeout(saveCaret, 0));
-    ta.addEventListener("click", () => setTimeout(saveCaret, 0));
-    ta.addEventListener("keyup", saveCaret);
-    ta.addEventListener("select", saveCaret);
-
     if (useKeyboard) {
-      ta.addEventListener("pointerdown", () => {
-        this._activeTargetId = id;
-      });
-
-      ta.addEventListener("pointerup", () => {
-        setTimeout(() => {
-          saveCaret();
-          this._openKeyboardForTarget(id, "default");
-        }, 0);
-      });
-
+      ta.addEventListener("focus", () => this._showKeyboardFor(id));
       ta.addEventListener("blur", () => {
         setTimeout(() => {
           const ae = document.activeElement;
@@ -437,7 +345,7 @@ Module.register("MMM-HA-AddEvent", {
             ((ae.tagName === "INPUT" && ae.type === "text") ||
               ae.tagName === "TEXTAREA");
           if (!stillText) this._hideKeyboard();
-        }, 60);
+        }, 50);
       });
     }
 
@@ -470,7 +378,7 @@ Module.register("MMM-HA-AddEvent", {
         return;
       }
 
-      // end_date is exclusive
+      // end_date exclusive
       const end_date = this._addDaysDateOnly(endDateInclusive, 1);
 
       this.sendSocketNotification("CREATE_EVENT", {
@@ -503,9 +411,6 @@ Module.register("MMM-HA-AddEvent", {
 
   socketNotificationReceived(notification, payload) {
     if (notification !== "RESULT") return;
-
-    if (!payload.ok) {
-      alert(`Failed: ${payload.error || "unknown error"}`);
-    }
+    if (!payload.ok) alert(`Failed: ${payload.error || "unknown error"}`);
   },
 });
