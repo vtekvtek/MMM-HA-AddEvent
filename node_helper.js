@@ -55,7 +55,7 @@ module.exports = NodeHelper.create({
 
     if (hasAllDay) {
       body.start_date = String(payload.start_date);
-      body.end_date = String(payload.end_date);
+      body.end_date = String(payload.end_date); // exclusive
     } else {
       const startMs = Date.parse(payload.start_date_time);
       const endMs = Date.parse(payload.end_date_time);
