@@ -39,7 +39,6 @@ module.exports = NodeHelper.create({
       return;
     }
 
-    // Support timed or all-day payloads
     const hasTimed = payload?.start_date_time && payload?.end_date_time;
     const hasAllDay = payload?.start_date && payload?.end_date;
 
