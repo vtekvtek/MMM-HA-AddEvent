@@ -13,6 +13,9 @@ Module.register("MMM-HA-AddEvent", {
     this._caretPos = {};
     this._activeTargetId = null;
 
+    // Prevent repeated "show keyboard" calls from toggling layouts
+    this._keyboardOpenFor = null;
+
     this._portal = document.getElementById("HA_EVENTADD_PORTAL");
     if (!this._portal) {
       this._portal = document.createElement("div");
@@ -76,6 +79,7 @@ Module.register("MMM-HA-AddEvent", {
 
   _hideKeyboard() {
     this._activeTargetId = null;
+    this._keyboardOpenFor = null;
 
     // Broad compatibility across forks
     this.sendNotification("KEYBOARD_HIDE");
@@ -85,10 +89,16 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   _openKeyboardForTarget(targetId, styleOverride) {
+    // Guard: do NOT keep re-sending "KEYBOARD show" for the same target,
+    // many keyboard forks treat repeated show calls as a layout toggle.
+    if (this._keyboardOpenFor === targetId) return;
+
     this._activeTargetId = targetId;
+    this._keyboardOpenFor = targetId;
+
     this.sendNotification("KEYBOARD", {
       key: this.config.keyboardKey,
-      style: styleOverride || this.config.keyboardStyle,
+      style: styleOverride || this.config.keyboardStyle || "default",
       data: { targetId },
     });
   },
@@ -158,7 +168,7 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   close() {
-    // Hide keyboard BEFORE tearing down DOM so the keyboard module doesn't lose context
+    // Hide keyboard first, then remove modal DOM
     this._hideKeyboard();
 
     this._visible = false;
@@ -207,7 +217,7 @@ Module.register("MMM-HA-AddEvent", {
     const modal = document.createElement("div");
     modal.className = "haModal";
 
-    // Hide keyboard when tapping anything in the modal that is not Title/Notes
+    // Hide keyboard when tapping anything that isn't a text field
     modal.addEventListener("pointerdown", (e) => {
       const t = e.target;
       const isTextField =
@@ -230,7 +240,6 @@ Module.register("MMM-HA-AddEvent", {
     form.appendChild(this._allDayRow());
 
     if (this._current.allDay) {
-      // Multi-day all-day: Start Date + End Date (inclusive UI, exclusive API)
       form.appendChild(
         this._row("Start Date", "date", "ha_date", this._current.date, false)
       );
@@ -341,8 +350,14 @@ Module.register("MMM-HA-AddEvent", {
     input.addEventListener("keyup", saveCaret);
     input.addEventListener("select", saveCaret);
 
+    // Text fields: open keyboard on POINTERDOWN (not focus), avoids layout toggling
     if (useKeyboard && type === "text") {
-      input.addEventListener("focus", () => this._openKeyboardForTarget(id, "default"));
+      input.addEventListener("pointerdown", () => this._openKeyboardForTarget(id, "default"));
+      input.addEventListener("focus", () => {
+        // If focus happened without pointerdown, don't spam show calls
+        // Only set active target, not show.
+        this._activeTargetId = id;
+      });
       input.addEventListener("blur", () => {
         setTimeout(() => {
           const ae = document.activeElement;
@@ -355,6 +370,7 @@ Module.register("MMM-HA-AddEvent", {
       });
     }
 
+    // Date/time pickers: hide keyboard and show picker
     if (type === "datetime-local" || type === "date") {
       const show = () => {
         this._hideKeyboard();
@@ -395,7 +411,10 @@ Module.register("MMM-HA-AddEvent", {
     ta.addEventListener("select", saveCaret);
 
     if (useKeyboard) {
-      ta.addEventListener("focus", () => this._openKeyboardForTarget(id, "default"));
+      ta.addEventListener("pointerdown", () => this._openKeyboardForTarget(id, "default"));
+      ta.addEventListener("focus", () => {
+        this._activeTargetId = id;
+      });
       ta.addEventListener("blur", () => {
         setTimeout(() => {
           const ae = document.activeElement;
@@ -430,7 +449,6 @@ Module.register("MMM-HA-AddEvent", {
         return;
       }
 
-      // Ensure end >= start
       const startD = new Date(`${start_date}T00:00:00`);
       const endD = new Date(`${endDateInclusive}T00:00:00`);
       if (isNaN(startD.getTime()) || isNaN(endD.getTime()) || endD < startD) {
@@ -438,7 +456,7 @@ Module.register("MMM-HA-AddEvent", {
         return;
       }
 
-      // HA expects end_date exclusive, so add 1 day to the inclusive end date
+      // end_date is exclusive
       const end_date = this._addDaysDateOnly(endDateInclusive, 1);
 
       this.sendSocketNotification("CREATE_EVENT", {
@@ -472,10 +490,7 @@ Module.register("MMM-HA-AddEvent", {
   socketNotificationReceived(notification, payload) {
     if (notification !== "RESULT") return;
 
-    if (payload.ok) {
-      // already closed on submit, but harmless
-      this._hideKeyboard();
-    } else {
+    if (!payload.ok) {
       alert(`Failed: ${payload.error || "unknown error"}`);
     }
   },
