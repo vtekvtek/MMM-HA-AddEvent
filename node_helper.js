@@ -11,7 +11,6 @@ module.exports = NodeHelper.create({
       this.cfg = payload;
       return;
     }
-
     if (notification !== "CREATE_EVENT") return;
 
     if (!this.cfg) {
@@ -38,7 +37,6 @@ module.exports = NodeHelper.create({
 
     const summary = String(payload?.summary ?? "").trim();
     const description = String(payload?.description ?? "").trim();
-
     if (!summary) {
       this.sendSocketNotification("RESULT", { ok: false, error: "Missing title" });
       return;
@@ -112,7 +110,6 @@ module.exports = NodeHelper.create({
           resolve(true);
         });
 
-        // If exec couldn't even start, catch it
         child.on("error", (err) => {
           this.sendSocketNotification("RESULT", {
             ok: false,
@@ -125,20 +122,50 @@ module.exports = NodeHelper.create({
       if (!ok) return;
     }
 
-    // 3) Force calendar module to fetch that same URL immediately
+    // Helper: sleep
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // 3) Confirm the MM box can see the updated ICS (no-cache GET)
+    //    This also warms up the webserver path, and helps avoid a stale 304/old body edge case.
     if (calendarIcsUrl) {
-      this.sendSocketNotification("PROGRESS", { step: "fetch" });
-
       try {
-        // This is what the default calendar module listens for
-        this.io.of("calendar").emit("FETCH_CALENDAR", { url: calendarIcsUrl });
+        this.sendSocketNotification("PROGRESS", { step: "fetch" });
 
-        // Tiny nudge again shortly after, helps if file write + webserver lag by a moment
-        setTimeout(() => {
-          this.io.of("calendar").emit("FETCH_CALENDAR", { url: calendarIcsUrl });
-        }, 1200);
+        // small settle time after writing
+        await sleep(2000);
+
+        const bust = `${calendarIcsUrl}${calendarIcsUrl.includes("?") ? "&" : "?"}ts=${Date.now()}`;
+        const check = await fetch(bust, {
+          method: "GET",
+          headers: {
+            "Cache-Control": "no-cache, no-store, max-age=0",
+            Pragma: "no-cache"
+          }
+        }).catch(() => null);
+
+        // If it fails, we still try to force fetch, but this is useful for debugging in pm2 logs
+        if (check && !check.ok) {
+          console.log(`[MMM-HA-AddEvent] ICS check non-OK: ${check.status}`);
+        }
       } catch (e) {
-        // Don’t fail the whole flow if the fetch nudge fails
+        console.log(`[MMM-HA-AddEvent] ICS check error: ${e?.message || e}`);
+      }
+
+      // 4) Force calendar module to fetch, multiple nudges spaced out
+      //    This handles internal debouncing and CalendarExt3 waitFetch behavior.
+      try {
+        const emitFetch = () => {
+          console.log(`[MMM-HA-AddEvent] Emitting FETCH_CALENDAR for ${calendarIcsUrl}`);
+          this.io.of("calendar").emit("FETCH_CALENDAR", { url: calendarIcsUrl });
+        };
+
+        emitFetch();
+        await sleep(2500);
+        emitFetch();
+        await sleep(7000);
+        emitFetch();
+      } catch (e) {
+        console.log(`[MMM-HA-AddEvent] FETCH_CALENDAR emit failed: ${e?.message || e}`);
       }
     }
 
