@@ -1,6 +1,5 @@
 const NodeHelper = require("node_helper");
 
-// Node 18+ has global fetch. If your MM is older Node, you can add node-fetch.
 module.exports = NodeHelper.create({
   start() {
     this.cfg = null;
@@ -19,61 +18,81 @@ module.exports = NodeHelper.create({
       return;
     }
 
-    const summary = payload && payload.summary ? String(payload.summary) : "";
-    const description = payload && payload.description ? String(payload.description) : "";
+    const haUrl = String(this.cfg.haUrl || "").replace(/\/+$/, "");
+    const token = this.cfg.haToken;
+    const entityId = this.cfg.calendarEntityId || "calendar.family";
 
-    if (!summary.trim()) {
+    if (!haUrl) {
+      this.sendSocketNotification("RESULT", { ok: false, error: "Missing haUrl in config" });
+      return;
+    }
+    if (!token) {
+      this.sendSocketNotification("RESULT", { ok: false, error: "Missing haToken in config" });
+      return;
+    }
+
+    const summary = String(payload?.summary ?? "").trim();
+    const description = String(payload?.description ?? "").trim();
+
+    if (!summary) {
       this.sendSocketNotification("RESULT", { ok: false, error: "Missing title" });
       return;
     }
 
-    const url = `${this.cfg.haUrl}/api/services/calendar/create_event`;
+    const url = `${haUrl}/api/services/calendar/create_event`;
 
-    // Build HA service body
     const body = {
-      entity_id: this.cfg.calendarEntityId,
-      summary: summary.trim()
+      entity_id: entityId,
+      summary
     };
+    if (description) body.description = description;
 
-    if (description.trim()) body.description = description.trim();
+    if (payload?.allDay) {
+      const start_date = String(payload?.start_date ?? "");
+      const end_date = String(payload?.end_date ?? ""); // exclusive
 
-    if (payload.allDay) {
-      // Proper all-day events use start_date + end_date (end is exclusive)
-      // This is what makes iPhone show "All-day" instead of midnight blocks. :contentReference[oaicite:2]{index=2}
-      if (!payload.start_date || !payload.end_date) {
+      if (!start_date || !end_date) {
         this.sendSocketNotification("RESULT", { ok: false, error: "Missing all-day dates" });
         return;
       }
-      body.start_date = payload.start_date;
-      body.end_date = payload.end_date;
+
+      body.start_date = start_date;
+      body.end_date = end_date;
     } else {
-      if (!payload.start_date_time || !payload.end_date_time) {
+      const start_date_time = payload?.start_date_time;
+      const end_date_time = payload?.end_date_time;
+
+      if (!start_date_time || !end_date_time) {
         this.sendSocketNotification("RESULT", { ok: false, error: "Missing start/end time" });
         return;
       }
-      body.start_date_time = payload.start_date_time;
-      body.end_date_time = payload.end_date_time;
+
+      body.start_date_time = start_date_time;
+      body.end_date_time = end_date_time;
     }
 
     try {
       const res = await fetch(url, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${this.cfg.haToken}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify(body)
       });
 
       if (!res.ok) {
-        const txt = await res.text();
-        this.sendSocketNotification("RESULT", { ok: false, error: `${res.status} ${txt}` });
+        const txt = await res.text().catch(() => "");
+        this.sendSocketNotification("RESULT", {
+          ok: false,
+          error: `${res.status} ${txt || res.statusText || "Request failed"}`
+        });
         return;
       }
 
       this.sendSocketNotification("RESULT", { ok: true });
     } catch (e) {
-      this.sendSocketNotification("RESULT", { ok: false, error: e && e.message ? e.message : String(e) });
+      this.sendSocketNotification("RESULT", { ok: false, error: e?.message || String(e) });
     }
   }
 });
