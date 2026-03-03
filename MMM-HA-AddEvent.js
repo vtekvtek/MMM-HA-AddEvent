@@ -759,7 +759,8 @@ Module.register("MMM-HA-AddEvent", {
 
       // Optional: nudge CalendarExt3 redraw
       this.sendNotification("CX3_SET_CONFIG", {
-        referenceDate: new Date().toISOString().slice(0, 10)
+        referenceDate: new Date().toISOString().slice(0, 10),
+        forceRefresh: Date.now()
       });
 
       setTimeout(() => this.close(), 450);
