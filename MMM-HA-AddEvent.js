@@ -27,6 +27,7 @@ Module.register("MMM-HA-AddEvent", {
       end: "",
       allDay: false,
       date: "",
+      endDate: "",
     };
 
     this.sendSocketNotification("CONFIG", this.config);
@@ -76,10 +77,11 @@ Module.register("MMM-HA-AddEvent", {
   _hideKeyboard() {
     this._activeTargetId = null;
 
-    // Different keyboard forks use different hide notifications
+    // Broad compatibility across forks
     this.sendNotification("KEYBOARD_HIDE");
     this.sendNotification("HIDE_KEYBOARD");
     this.sendNotification("CLOSE_KEYBOARD");
+    this.sendNotification("KEYBOARD", { key: this.config.keyboardKey, action: "hide" });
   },
 
   _openKeyboardForTarget(targetId, styleOverride) {
@@ -113,7 +115,6 @@ Module.register("MMM-HA-AddEvent", {
     el.value = nextValue;
     el.dispatchEvent(new Event("input", { bubbles: true }));
 
-    // Always restore caret for active target
     if (this._activeTargetId === targetId) {
       requestAnimationFrame(() => {
         try {
@@ -135,13 +136,16 @@ Module.register("MMM-HA-AddEvent", {
 
     const end = new Date(now.getTime() + 30 * 60 * 1000);
 
+    const dateOnly = this._toDateOnly(now);
+
     this._current = {
       summary: "",
       description: "",
       start: this._toDateTimeLocal(now),
       end: this._toDateTimeLocal(end),
       allDay: false,
-      date: this._toDateOnly(now),
+      date: dateOnly,
+      endDate: dateOnly,
     };
 
     this._visible = true;
@@ -154,9 +158,11 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   close() {
+    // Hide keyboard BEFORE tearing down DOM so the keyboard module doesn't lose context
+    this._hideKeyboard();
+
     this._visible = false;
     this._renderPortal();
-    this._hideKeyboard();
   },
 
   _pad(x) {
@@ -224,8 +230,12 @@ Module.register("MMM-HA-AddEvent", {
     form.appendChild(this._allDayRow());
 
     if (this._current.allDay) {
+      // Multi-day all-day: Start Date + End Date (inclusive UI, exclusive API)
       form.appendChild(
-        this._row("Date", "date", "ha_date", this._current.date, false)
+        this._row("Start Date", "date", "ha_date", this._current.date, false)
+      );
+      form.appendChild(
+        this._row("End Date", "date", "ha_endDate", this._current.endDate, false)
       );
     } else {
       form.appendChild(
@@ -279,7 +289,9 @@ Module.register("MMM-HA-AddEvent", {
 
       if (this._current.allDay) {
         const d = new Date(this._current.start);
-        if (!isNaN(d.getTime())) this._current.date = this._toDateOnly(d);
+        const dateOnly = !isNaN(d.getTime()) ? this._toDateOnly(d) : this._current.date;
+        this._current.date = dateOnly || this._toDateOnly(new Date());
+        this._current.endDate = this._current.endDate || this._current.date;
         this._hideKeyboard();
       }
 
@@ -316,9 +328,9 @@ Module.register("MMM-HA-AddEvent", {
       if (id === "ha_start") this._current.start = input.value;
       if (id === "ha_end") this._current.end = input.value;
       if (id === "ha_date") this._current.date = input.value;
+      if (id === "ha_endDate") this._current.endDate = input.value;
     });
 
-    // Track caret
     const saveCaret = () => {
       if (typeof input.selectionStart === "number") {
         this._caretPos[id] = input.selectionStart;
@@ -332,7 +344,6 @@ Module.register("MMM-HA-AddEvent", {
     if (useKeyboard && type === "text") {
       input.addEventListener("focus", () => this._openKeyboardForTarget(id, "default"));
       input.addEventListener("blur", () => {
-        // If focus leaves text field, hide keyboard shortly after
         setTimeout(() => {
           const ae = document.activeElement;
           const stillText =
@@ -344,7 +355,6 @@ Module.register("MMM-HA-AddEvent", {
       });
     }
 
-    // Date/time pickers should open immediately and hide keyboard
     if (type === "datetime-local" || type === "date") {
       const show = () => {
         this._hideKeyboard();
@@ -413,13 +423,23 @@ Module.register("MMM-HA-AddEvent", {
 
     if (this._current.allDay) {
       const start_date = this._current.date;
+      const endDateInclusive = this._current.endDate || start_date;
+
       if (!start_date) {
-        alert("Please choose a date.");
+        alert("Please choose a start date.");
         return;
       }
 
-      // end_date must be the next day, end is exclusive in HA calendar service. :contentReference[oaicite:1]{index=1}
-      const end_date = this._addDaysDateOnly(start_date, 1);
+      // Ensure end >= start
+      const startD = new Date(`${start_date}T00:00:00`);
+      const endD = new Date(`${endDateInclusive}T00:00:00`);
+      if (isNaN(startD.getTime()) || isNaN(endD.getTime()) || endD < startD) {
+        alert("End date must be the same or after start date.");
+        return;
+      }
+
+      // HA expects end_date exclusive, so add 1 day to the inclusive end date
+      const end_date = this._addDaysDateOnly(endDateInclusive, 1);
 
       this.sendSocketNotification("CREATE_EVENT", {
         summary,
@@ -427,6 +447,8 @@ Module.register("MMM-HA-AddEvent", {
         start_date,
         end_date,
       });
+
+      this.close();
       return;
     }
 
@@ -443,13 +465,16 @@ Module.register("MMM-HA-AddEvent", {
       start_date_time: new Date(this._current.start).toISOString(),
       end_date_time: new Date(this._current.end).toISOString(),
     });
+
+    this.close();
   },
 
   socketNotificationReceived(notification, payload) {
     if (notification !== "RESULT") return;
 
     if (payload.ok) {
-      this.close();
+      // already closed on submit, but harmless
+      this._hideKeyboard();
     } else {
       alert(`Failed: ${payload.error || "unknown error"}`);
     }
