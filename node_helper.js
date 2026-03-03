@@ -1,5 +1,6 @@
 const NodeHelper = require("node_helper");
 
+// Node 18+ has global fetch. If your MM is older Node, you can add node-fetch.
 module.exports = NodeHelper.create({
   start() {
     this.cfg = null;
@@ -18,85 +19,61 @@ module.exports = NodeHelper.create({
       return;
     }
 
-    const haUrl = String(this.cfg.haUrl || "").replace(/\/+$/, "");
-    const token = this.cfg.haToken;
-    const entityId = this.cfg.calendarEntityId || "calendar.family";
+    const summary = payload && payload.summary ? String(payload.summary) : "";
+    const description = payload && payload.description ? String(payload.description) : "";
 
-    if (!haUrl) {
-      this.sendSocketNotification("RESULT", { ok: false, error: "Missing haUrl in config" });
-      return;
-    }
-    if (!token) {
-      this.sendSocketNotification("RESULT", { ok: false, error: "Missing haToken in config" });
-      return;
-    }
-
-    const summary = String(payload?.summary ?? "").trim();
-    const description = String(payload?.description ?? "").trim();
-
-    if (!summary) {
+    if (!summary.trim()) {
       this.sendSocketNotification("RESULT", { ok: false, error: "Missing title" });
       return;
     }
 
-    const hasTimed = payload?.start_date_time && payload?.end_date_time;
-    const hasAllDay = payload?.start_date && payload?.end_date;
+    const url = `${this.cfg.haUrl}/api/services/calendar/create_event`;
 
-    if (!hasTimed && !hasAllDay) {
-      this.sendSocketNotification("RESULT", { ok: false, error: "Missing date fields" });
-      return;
-    }
-
+    // Build HA service body
     const body = {
-      entity_id: entityId,
-      summary,
-      description,
+      entity_id: this.cfg.calendarEntityId,
+      summary: summary.trim()
     };
 
-    if (hasAllDay) {
-      body.start_date = String(payload.start_date);
-      body.end_date = String(payload.end_date); // exclusive
+    if (description.trim()) body.description = description.trim();
+
+    if (payload.allDay) {
+      // Proper all-day events use start_date + end_date (end is exclusive)
+      // This is what makes iPhone show "All-day" instead of midnight blocks. :contentReference[oaicite:2]{index=2}
+      if (!payload.start_date || !payload.end_date) {
+        this.sendSocketNotification("RESULT", { ok: false, error: "Missing all-day dates" });
+        return;
+      }
+      body.start_date = payload.start_date;
+      body.end_date = payload.end_date;
     } else {
-      const startMs = Date.parse(payload.start_date_time);
-      const endMs = Date.parse(payload.end_date_time);
-
-      if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
-        this.sendSocketNotification("RESULT", { ok: false, error: "Invalid date/time format" });
+      if (!payload.start_date_time || !payload.end_date_time) {
+        this.sendSocketNotification("RESULT", { ok: false, error: "Missing start/end time" });
         return;
       }
-      if (endMs <= startMs) {
-        this.sendSocketNotification("RESULT", { ok: false, error: "End time must be after start time" });
-        return;
-      }
-
       body.start_date_time = payload.start_date_time;
       body.end_date_time = payload.end_date_time;
     }
-
-    const url = `${haUrl}/api/services/calendar/create_event`;
 
     try {
       const res = await fetch(url, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.cfg.haToken}`,
+          "Content-Type": "application/json"
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(body)
       });
 
       if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        this.sendSocketNotification("RESULT", {
-          ok: false,
-          error: `${res.status} ${txt || res.statusText || "Request failed"}`,
-        });
+        const txt = await res.text();
+        this.sendSocketNotification("RESULT", { ok: false, error: `${res.status} ${txt}` });
         return;
       }
 
       this.sendSocketNotification("RESULT", { ok: true });
     } catch (e) {
-      this.sendSocketNotification("RESULT", { ok: false, error: e?.message || String(e) });
+      this.sendSocketNotification("RESULT", { ok: false, error: e && e.message ? e.message : String(e) });
     }
-  },
+  }
 });
