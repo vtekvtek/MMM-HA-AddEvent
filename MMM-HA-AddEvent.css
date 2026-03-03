@@ -113,7 +113,7 @@
   align-items: center;
 }
 
-/* Modal, slightly more "card" like */
+/* Modal */
 .haModal {
   background: rgba(17,17,17,0.96);
   border: 1px solid rgba(255,255,255,0.14);
@@ -124,6 +124,9 @@
   overflow: auto;
   box-shadow: 0 0 20px rgba(0, 0, 0, 1);
   pointer-events: auto;
+
+  /* Prevent inheriting right-align from MM themes */
+  text-align: left !important;
 }
 
 /* Title */
@@ -160,6 +163,14 @@
   padding: 10px 10px;
   border-radius: 10px;
   font-size: 18px;
+
+  /* Fix "caret/text on far right" */
+  text-align: left !important;
+  direction: ltr !important;
+}
+
+.haRow input[type="text"] {
+  min-height: 46px;
 }
 
 .haRow textarea {
@@ -173,7 +184,7 @@
   border-color: rgba(255,255,255,0.22);
 }
 
-/* Hide the calendar icon for datetime-local inputs (Chromium/WebKit) */
+/* Hide calendar icon for datetime-local (Chromium/WebKit) */
 .haRow input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   opacity: 0;
   display: none;
@@ -184,7 +195,38 @@
   display: none;
 }
 
-/* Buttons, match toggle vibe */
+/* Hide calendar icon for date input too */
+.haRow input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  display: none;
+  -webkit-appearance: none;
+}
+.haRow input[type="date"]::-webkit-inner-spin-button,
+.haRow input[type="date"]::-webkit-clear-button {
+  display: none;
+}
+
+/* All-day row */
+.haRowInline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 12px;
+}
+
+.haCheck {
+  width: 20px;
+  height: 20px;
+  accent-color: rgba(255, 160, 70, 0.85);
+}
+
+.haInlineLabel {
+  font-size: 14px;
+  color: rgba(255,255,255,0.72);
+  user-select: none;
+}
+
+/* Buttons */
 .haButtons {
   display: flex;
   justify-content: flex-end;
@@ -212,14 +254,9 @@
   opacity: 0.85;
 }
 
-/* Save with subtle orange accent like your ON state */
+/* Save with subtle orange accent */
 .haBtn.save {
   border-color: rgba(255, 170, 90, 0.55);
   background: rgba(255, 160, 70, 0.16);
   color: rgba(255,255,255,0.95);
-}
-
-/* Optional: keep modal above keyboard area if needed */
-.haModal {
-  margin-bottom: 0;
 }
