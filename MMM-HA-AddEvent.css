@@ -66,7 +66,7 @@
 }
 
 /* =========================
-   FULL SCREEN MODAL PORTAL
+   MODAL PORTAL
    ========================= */
 
 #HA_EVENTADD_PORTAL {
@@ -100,6 +100,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
+  pointer-events: auto;
 }
 
 .haModal {
@@ -135,20 +136,28 @@
   margin-bottom: 5px;
 }
 
+/* All-day row: label left, checkbox next to it, not centered */
 .haRowInline {
   display: flex;
-  flex-direction: row;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
-  padding: 6px 0 2px;
+  margin: 6px 0 12px;
 }
 
 .haInlineLabel {
-  margin: 0;
-  opacity: 0.85;
+  font-size: 14px;
+  color: rgba(255,255,255,0.78);
+  user-select: none;
 }
 
+.haCheck {
+  width: 20px;
+  height: 20px;
+  accent-color: rgba(255, 160, 70, 0.85);
+}
+
+/* Inputs */
 .haRow input,
 .haRow textarea {
   width: 100%;
@@ -162,6 +171,7 @@
   text-align: left;
   direction: ltr;
   user-select: text;
+  -webkit-user-select: text;
 }
 
 .haRow textarea {
@@ -182,6 +192,28 @@
   margin-bottom: 8px;
 }
 
+/* Hide the calendar icon for date/datetime inputs (Chromium/Electron) */
+.haRow input[type="date"],
+.haRow input[type="datetime-local"] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.haRow input[type="date"]::-webkit-calendar-picker-indicator,
+.haRow input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  display: none;
+  -webkit-appearance: none;
+}
+
+.haRow input[type="date"]::-webkit-inner-spin-button,
+.haRow input[type="date"]::-webkit-clear-button,
+.haRow input[type="datetime-local"]::-webkit-inner-spin-button,
+.haRow input[type="datetime-local"]::-webkit-clear-button {
+  display: none;
+}
+
+/* Buttons */
 .haButtons {
   display: flex;
   justify-content: flex-end;
@@ -225,12 +257,11 @@
   border-top: 1px solid rgba(255,255,255,0.10);
 }
 
-/* Keep the keyboard inside the modal and above other stuff */
 .haKb {
   width: 100%;
 }
 
-/* Slightly tune simple-keyboard look for dark UI */
+/* Dark theme tweaks for keys */
 .haKb .hg-button {
   border-radius: 10px;
   border: 1px solid rgba(255,255,255,0.14);
