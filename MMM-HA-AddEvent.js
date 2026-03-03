@@ -4,11 +4,15 @@ Module.register("MMM-HA-AddEvent", {
   defaults: {
     buttonText: "Add Event",
     keyboardKey: "MMM-HA-AddEvent",
-    keyboardStyle: "default", // "default" or "numbers" depending on your keyboard module
+    keyboardStyle: "default",
   },
 
   start() {
     this._visible = false;
+
+    // Track caret positions per input so keyboard updates don't force cursor to the end
+    this._caretPos = {};
+
     this._portal = document.getElementById("HA_EVENTADD_PORTAL");
     if (!this._portal) {
       this._portal = document.createElement("div");
@@ -32,7 +36,6 @@ Module.register("MMM-HA-AddEvent", {
     return ["MMM-HA-AddEvent.css"];
   },
 
-  // Button can live anywhere, modal always centers
   getDom() {
     const wrap = document.createElement("div");
     const btn = document.createElement("button");
@@ -43,7 +46,6 @@ Module.register("MMM-HA-AddEvent", {
     return wrap;
   },
 
-  // MMM-Keyboard integration (same idea as your iCloud module)
   _openKeyboardForTarget(targetId, styleOverride) {
     this._activeTargetId = targetId;
     this.sendNotification("KEYBOARD", {
@@ -64,12 +66,32 @@ Module.register("MMM-HA-AddEvent", {
     const el = document.getElementById(targetId);
     if (!el) return;
 
-    el.value = message;
+    const wasFocused = document.activeElement === el;
+
+    // Use last known caret for this field, otherwise end
+    const desired = this._caretPos[targetId];
+    const nextValue = String(message);
+    const caret =
+      typeof desired === "number"
+        ? Math.min(desired, nextValue.length)
+        : nextValue.length;
+
+    el.value = nextValue;
     el.dispatchEvent(new Event("input", { bubbles: true }));
+
+    if (wasFocused) {
+      requestAnimationFrame(() => {
+        try {
+          el.focus();
+          if (typeof el.setSelectionRange === "function") {
+            el.setSelectionRange(caret, caret);
+          }
+        } catch (e) {}
+      });
+    }
   },
 
   open() {
-    // Default start/end to "now + 30" in local time, rounded to next 5 min
     const now = new Date();
     now.setSeconds(0, 0);
     const mins = now.getMinutes();
@@ -105,7 +127,9 @@ Module.register("MMM-HA-AddEvent", {
 
   _toDateTimeLocal(d) {
     const pad = (x) => String(x).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+      d.getDate()
+    )}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   },
 
   _renderPortal() {
@@ -121,7 +145,6 @@ Module.register("MMM-HA-AddEvent", {
     const overlay = document.createElement("div");
     overlay.className = "haOverlay";
     overlay.onclick = (e) => {
-      // click outside modal closes
       if (e.target === overlay) this.close();
     };
 
@@ -134,10 +157,18 @@ Module.register("MMM-HA-AddEvent", {
 
     const form = document.createElement("div");
 
-    form.appendChild(this._row("Title", "text", "ha_summary", this._current.summary, true));
-    form.appendChild(this._row("Start", "datetime-local", "ha_start", this._current.start, false));
-    form.appendChild(this._row("End", "datetime-local", "ha_end", this._current.end, false));
-    form.appendChild(this._rowTextArea("Notes", "ha_desc", this._current.description, true));
+    form.appendChild(
+      this._row("Title", "text", "ha_summary", this._current.summary, true)
+    );
+    form.appendChild(
+      this._row("Start", "datetime-local", "ha_start", this._current.start, false)
+    );
+    form.appendChild(
+      this._row("End", "datetime-local", "ha_end", this._current.end, false)
+    );
+    form.appendChild(
+      this._rowTextArea("Notes", "ha_desc", this._current.description, true)
+    );
 
     const btnBar = document.createElement("div");
     btnBar.className = "haButtons";
@@ -176,15 +207,36 @@ Module.register("MMM-HA-AddEvent", {
     input.type = type;
     input.id = id;
     input.value = value || "";
+
     input.addEventListener("input", () => {
       if (id === "ha_summary") this._current.summary = input.value;
       if (id === "ha_start") this._current.start = input.value;
       if (id === "ha_end") this._current.end = input.value;
     });
 
-    // Only open keyboard for text, datetime-local should use native picker on touch
+    // Track caret so KEYBOARD_INPUT updates don't force editing only at end
+    const saveCaret = () => {
+      if (typeof input.selectionStart === "number") {
+        this._caretPos[id] = input.selectionStart;
+      }
+    };
+    input.addEventListener("click", saveCaret);
+    input.addEventListener("keyup", saveCaret);
+    input.addEventListener("select", saveCaret);
+    input.addEventListener("pointerup", saveCaret);
+
+    // Keyboard for text
     if (useKeyboard && type === "text") {
       input.addEventListener("focus", () => this._openKeyboardForTarget(id, "default"));
+    }
+
+    // Open native picker immediately for datetime-local, and hide the right-side icon via CSS
+    if (type === "datetime-local") {
+      const show = () => {
+        if (typeof input.showPicker === "function") input.showPicker();
+      };
+      input.addEventListener("pointerdown", show);
+      input.addEventListener("focus", show);
     }
 
     row.append(l, input);
@@ -202,9 +254,21 @@ Module.register("MMM-HA-AddEvent", {
     const ta = document.createElement("textarea");
     ta.id = id;
     ta.value = value || "";
+
     ta.addEventListener("input", () => {
       this._current.description = ta.value;
     });
+
+    // Track caret
+    const saveCaret = () => {
+      if (typeof ta.selectionStart === "number") {
+        this._caretPos[id] = ta.selectionStart;
+      }
+    };
+    ta.addEventListener("click", saveCaret);
+    ta.addEventListener("keyup", saveCaret);
+    ta.addEventListener("select", saveCaret);
+    ta.addEventListener("pointerup", saveCaret);
 
     if (useKeyboard) {
       ta.addEventListener("focus", () => this._openKeyboardForTarget(id, "default"));
@@ -215,11 +279,9 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   _submit() {
-    // Basic sanity: end after start
     const start = new Date(this._current.start);
     const end = new Date(this._current.end);
     if (isNaN(start.getTime()) || isNaN(end.getTime()) || end <= start) {
-      // quick brutal feedback, can fancy later
       alert("End time must be after start time.");
       return;
     }
