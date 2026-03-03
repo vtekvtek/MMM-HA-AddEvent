@@ -552,14 +552,25 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   _onKbKeyPress(btn) {
-    if (!this._keyboard) return;
-
     if (btn === "{caps}") {
-      this._capsLock = !this._capsLock;
-      this._shiftOneShot = false;
-      this._pendingOneShotReset = false;
-      this._applyKeyboardCaseMode(true);
-      return;
+  this._capsLock = !this._capsLock;
+
+  // Tell SimpleKeyboard to visually toggle Caps
+  this._keyboard.setOptions({
+    buttonTheme: [
+      {
+        class: "hg-activeButton",
+        buttons: "{caps}",
+        enabled: this._capsLock
+      }
+    ]
+  });
+
+  this._shiftOneShot = false;
+  this._pendingOneShotReset = false;
+  this._applyKeyboardCaseMode(true);
+  return;
+}
     }
 
     if (btn === "{shift}") {
