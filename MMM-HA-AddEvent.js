@@ -15,9 +15,12 @@ Module.register("MMM-HA-AddEvent", {
     this._keyboard = null;
 
     // Keyboard state
-    this._capsLock = true;          // start in caps
-    this._shiftOneShot = false;     // one-letter shift
+    this._capsLock = false;          // persistent caps lock
+    this._shiftOneShot = false;      // one-letter shift
     this._pendingOneShotReset = false;
+
+    // Auto-cap first letter only (per field focus)
+    this._autoCapNext = true;
 
     this._current = this._defaultState();
 
@@ -94,9 +97,10 @@ Module.register("MMM-HA-AddEvent", {
     this._visible = true;
     this._activeField = "ha_summary";
 
-    // Start keyboard in caps when opening
-    this._capsLock = true;
+    // First-letter caps when opening
+    this._capsLock = false;
     this._shiftOneShot = false;
+    this._autoCapNext = true;
 
     this._applyVisibility();
     this._syncUIFromState();
@@ -444,11 +448,12 @@ Module.register("MMM-HA-AddEvent", {
     const el = document.getElementById(id);
     if (el) el.focus({ preventScroll: true });
 
-    // When switching fields, start in caps as requested
-    this._capsLock = true;
+    // First-letter-only caps on field switch
+    this._autoCapNext = true;
     this._shiftOneShot = false;
-    this._applyKeyboardCaseMode(true);
+    this._pendingOneShotReset = false;
 
+    this._applyKeyboardCaseMode(true);
     this._syncKeyboardToActive();
   },
 
@@ -494,9 +499,12 @@ Module.register("MMM-HA-AddEvent", {
   _applyKeyboardCaseMode(force) {
     if (!this._keyboard) return;
 
-    // If capsLock is on, we want shift layout (uppercase)
-    // If capsLock is off, we want default layout (lowercase)
-    const target = this._capsLock ? "shift" : "default";
+    // Priority:
+    // 1) If user has capsLock on, uppercase
+    // 2) Else if autoCapNext is true, uppercase (first letter)
+    // 3) Else lowercase
+    const wantUpper = !!this._capsLock || !!this._autoCapNext;
+    const target = wantUpper ? "shift" : "default";
 
     if (force) {
       this._keyboard.setOptions({ layoutName: target });
@@ -516,6 +524,12 @@ Module.register("MMM-HA-AddEvent", {
 
     const v = el.value || "";
     this._keyboard.setInput(v);
+
+    // If the field already has text, do not auto-cap
+    if (v.length > 0) {
+      this._autoCapNext = false;
+      this._applyKeyboardCaseMode(true);
+    }
   },
 
   _onKbChange(input) {
@@ -525,10 +539,19 @@ Module.register("MMM-HA-AddEvent", {
     const el = document.getElementById(id);
     if (!el) return;
 
+    const before = el.value || "";
     el.value = input;
     el.dispatchEvent(new Event("input", { bubbles: true }));
 
-    // One-shot shift: after one normal key, snap back to caps mode or lowercase mode
+    // First-letter-only caps: once the first character is entered, drop autoCapNext
+    if (this._autoCapNext) {
+      if ((before.length === 0) && (input.length >= 1)) {
+        this._autoCapNext = false;
+        this._applyKeyboardCaseMode(true);
+      }
+    }
+
+    // One-shot shift: reset after one normal key
     if (this._pendingOneShotReset) {
       this._pendingOneShotReset = false;
       this._shiftOneShot = false;
@@ -539,28 +562,36 @@ Module.register("MMM-HA-AddEvent", {
   _onKbKeyPress(btn) {
     if (!this._keyboard) return;
 
-    // Caps lock toggle (persistent)
+    // Caps lock (persistent)
     if (btn === "{caps}") {
       this._capsLock = !this._capsLock;
+
+      // If capsLock is enabled, it overrides autoCapNext feel
+      // If capsLock is disabled, autoCapNext still controls first letter if true
       this._shiftOneShot = false;
       this._pendingOneShotReset = false;
+
       this._applyKeyboardCaseMode(true);
       return;
     }
 
     // Shift (one character only)
     if (btn === "{shift}") {
-      // If caps is on, shift should temporarily go lowercase for one char
-      // If caps is off, shift should temporarily go uppercase for one char
-      const tempLayout = this._capsLock ? "default" : "shift";
-      this._keyboard.setOptions({ layoutName: tempLayout });
+      // Temporarily flip case for one char relative to current target
+      const current = this._keyboard.options.layoutName || "default";
+      const temp = current === "default" ? "shift" : "default";
+      this._keyboard.setOptions({ layoutName: temp });
+
       this._shiftOneShot = true;
-      this._pendingOneShotReset = false; // will flip to true on next normal keypress
+      this._pendingOneShotReset = false;
       return;
     }
 
     if (btn === "{clear}") {
       this._keyboard.clearInput();
+      // Clearing resets first-letter caps behavior for this field
+      this._autoCapNext = true;
+      this._applyKeyboardCaseMode(true);
       return;
     }
 
@@ -571,7 +602,7 @@ Module.register("MMM-HA-AddEvent", {
       return;
     }
 
-    // For any normal key press, if shiftOneShot is active, schedule reset after the input updates
+    // Normal key: if shift is active, reset after this keypress lands
     if (this._shiftOneShot) {
       this._pendingOneShotReset = true;
     }
