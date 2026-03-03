@@ -109,3 +109,14 @@
   background: #6c757d;
   color: #fff;
 }
+
+/* Hide the calendar icon for datetime-local inputs (Chromium/WebKit) */
+.haRow input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  display: none;
+  -webkit-appearance: none;
+}
+.haRow input[type="datetime-local"]::-webkit-inner-spin-button,
+.haRow input[type="datetime-local"]::-webkit-clear-button {
+  display: none;
+}
