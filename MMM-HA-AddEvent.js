@@ -89,8 +89,7 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   _openKeyboardForTarget(targetId, styleOverride) {
-    // Guard: do NOT keep re-sending "KEYBOARD show" for the same target,
-    // many keyboard forks treat repeated show calls as a layout toggle.
+    // Guard: avoid repeated show calls that can toggle layout to numbers
     if (this._keyboardOpenFor === targetId) return;
 
     this._activeTargetId = targetId;
@@ -340,6 +339,7 @@ Module.register("MMM-HA-AddEvent", {
       if (id === "ha_endDate") this._current.endDate = input.value;
     });
 
+    // Save caret AFTER Electron places it
     const saveCaret = () => {
       if (typeof input.selectionStart === "number") {
         this._caretPos[id] = input.selectionStart;
@@ -350,14 +350,21 @@ Module.register("MMM-HA-AddEvent", {
     input.addEventListener("keyup", saveCaret);
     input.addEventListener("select", saveCaret);
 
-    // Text fields: open keyboard on POINTERDOWN (not focus), avoids layout toggling
+    // Text fields: mark active on pointerdown, open keyboard on pointerup
+    // This is the Electron fix: let caret settle first, then show keyboard
     if (useKeyboard && type === "text") {
-      input.addEventListener("pointerdown", () => this._openKeyboardForTarget(id, "default"));
-      input.addEventListener("focus", () => {
-        // If focus happened without pointerdown, don't spam show calls
-        // Only set active target, not show.
+      input.addEventListener("pointerdown", () => {
         this._activeTargetId = id;
       });
+
+      input.addEventListener("pointerup", () => {
+        setTimeout(() => {
+          // capture caret after Electron sets it
+          saveCaret();
+          this._openKeyboardForTarget(id, "default");
+        }, 0);
+      });
+
       input.addEventListener("blur", () => {
         setTimeout(() => {
           const ae = document.activeElement;
@@ -411,10 +418,17 @@ Module.register("MMM-HA-AddEvent", {
     ta.addEventListener("select", saveCaret);
 
     if (useKeyboard) {
-      ta.addEventListener("pointerdown", () => this._openKeyboardForTarget(id, "default"));
-      ta.addEventListener("focus", () => {
+      ta.addEventListener("pointerdown", () => {
         this._activeTargetId = id;
       });
+
+      ta.addEventListener("pointerup", () => {
+        setTimeout(() => {
+          saveCaret();
+          this._openKeyboardForTarget(id, "default");
+        }, 0);
+      });
+
       ta.addEventListener("blur", () => {
         setTimeout(() => {
           const ae = document.activeElement;
