@@ -357,7 +357,7 @@ Module.register("MMM-HA-AddEvent", {
     const kbWrap = document.createElement("div");
     kbWrap.className = "haKbWrap";
     const kb = document.createElement("div");
-    kb.className = "simple-keyboard haKb";
+    kb.className = "simple-keyboard";
     kbWrap.appendChild(kb);
 
     // Buttons
@@ -378,15 +378,7 @@ Module.register("MMM-HA-AddEvent", {
 
     btnBar.append(cancel, save);
 
-    form.append(
-      summaryRow,
-      allDayRow,
-      timedWrap,
-      alldayWrap,
-      descRow,
-      kbWrap,
-      btnBar
-    );
+    form.append(summaryRow, allDayRow, timedWrap, alldayWrap, descRow, kbWrap, btnBar);
 
     modal.append(title, form);
     overlay.appendChild(modal);
@@ -467,6 +459,8 @@ Module.register("MMM-HA-AddEvent", {
     if (!kbEl) return;
 
     this._keyboard = new ctor(kbEl, {
+      // This is the key fix, keep our theme class even if the library manages classes
+      theme: "hg-theme-default haKbTheme",
       onChange: (input) => this._onKbChange(input),
       onKeyPress: (btn) => this._onKbKeyPress(btn),
       layout: {
@@ -494,15 +488,14 @@ Module.register("MMM-HA-AddEvent", {
         "{clear}": "Clear"
       }
     });
+
+    // Extra insurance
+    kbEl.classList.add("haKbTheme");
   },
 
   _applyKeyboardCaseMode(force) {
     if (!this._keyboard) return;
 
-    // Priority:
-    // 1) If user has capsLock on, uppercase
-    // 2) Else if autoCapNext is true, uppercase (first letter)
-    // 3) Else lowercase
     const wantUpper = !!this._capsLock || !!this._autoCapNext;
     const target = wantUpper ? "shift" : "default";
 
@@ -525,7 +518,6 @@ Module.register("MMM-HA-AddEvent", {
     const v = el.value || "";
     this._keyboard.setInput(v);
 
-    // If the field already has text, do not auto-cap
     if (v.length > 0) {
       this._autoCapNext = false;
       this._applyKeyboardCaseMode(true);
@@ -543,15 +535,15 @@ Module.register("MMM-HA-AddEvent", {
     el.value = input;
     el.dispatchEvent(new Event("input", { bubbles: true }));
 
-    // First-letter-only caps: once the first character is entered, drop autoCapNext
+    // First-letter-only caps: once first char lands, drop autoCapNext
     if (this._autoCapNext) {
-      if ((before.length === 0) && (input.length >= 1)) {
+      if (before.length === 0 && input.length >= 1) {
         this._autoCapNext = false;
         this._applyKeyboardCaseMode(true);
       }
     }
 
-    // One-shot shift: reset after one normal key
+    // One-shot shift reset
     if (this._pendingOneShotReset) {
       this._pendingOneShotReset = false;
       this._shiftOneShot = false;
@@ -562,22 +554,15 @@ Module.register("MMM-HA-AddEvent", {
   _onKbKeyPress(btn) {
     if (!this._keyboard) return;
 
-    // Caps lock (persistent)
     if (btn === "{caps}") {
       this._capsLock = !this._capsLock;
-
-      // If capsLock is enabled, it overrides autoCapNext feel
-      // If capsLock is disabled, autoCapNext still controls first letter if true
       this._shiftOneShot = false;
       this._pendingOneShotReset = false;
-
       this._applyKeyboardCaseMode(true);
       return;
     }
 
-    // Shift (one character only)
     if (btn === "{shift}") {
-      // Temporarily flip case for one char relative to current target
       const current = this._keyboard.options.layoutName || "default";
       const temp = current === "default" ? "shift" : "default";
       this._keyboard.setOptions({ layoutName: temp });
@@ -589,23 +574,17 @@ Module.register("MMM-HA-AddEvent", {
 
     if (btn === "{clear}") {
       this._keyboard.clearInput();
-      // Clearing resets first-letter caps behavior for this field
       this._autoCapNext = true;
       this._applyKeyboardCaseMode(true);
       return;
     }
 
     if (btn === "{enter}") {
-      if (this._activeField === "ha_summary") {
-        this._setActiveField("ha_desc");
-      }
+      if (this._activeField === "ha_summary") this._setActiveField("ha_desc");
       return;
     }
 
-    // Normal key: if shift is active, reset after this keypress lands
-    if (this._shiftOneShot) {
-      this._pendingOneShotReset = true;
-    }
+    if (this._shiftOneShot) this._pendingOneShotReset = true;
   },
 
   _syncUIFromState() {
@@ -657,7 +636,6 @@ Module.register("MMM-HA-AddEvent", {
         start_date: this._current.startDate,
         end_date: endExclusive
       });
-
       return;
     }
 
