@@ -33,6 +33,7 @@
   gap: 10px;
   cursor: pointer;
   user-select: none;
+  outline: none;
 }
 
 .haAddTitleWrap {
@@ -59,6 +60,11 @@
   opacity: 0.65;
 }
 
+/* Accent (no glow, just border/background) */
+.haAddRow.isAccent {
+  border-color: rgba(255, 170, 90, 0.55);
+  background: rgba(255, 160, 70, 0.10);
+}
 
 /* =========================
    FULL SCREEN MODAL PORTAL
@@ -88,6 +94,7 @@
   align-items: center;
 }
 
+/* Overlay */
 .haOverlay {
   background-color: rgba(0, 0, 0, 0.85);
   width: 100%;
@@ -97,6 +104,7 @@
   align-items: center;
 }
 
+/* Modal */
 .haModal {
   background: rgba(17,17,17,0.96);
   border: 1px solid rgba(255,255,255,0.14);
@@ -107,9 +115,9 @@
   overflow: auto;
   box-shadow: 0 0 20px rgba(0, 0, 0, 1);
   pointer-events: auto;
-  text-align: left !important;
 }
 
+/* Title */
 .haTitle {
   font-size: 24px;
   margin-bottom: 14px;
@@ -118,6 +126,7 @@
   padding-bottom: 10px;
 }
 
+/* Rows */
 .haRow {
   margin-bottom: 10px;
   display: flex;
@@ -131,9 +140,23 @@
   margin-bottom: 5px;
 }
 
-/* Strong overrides so MM themes can't right-align or break selection */
-#HA_EVENTADD_PORTAL .haRow input,
-#HA_EVENTADD_PORTAL .haRow textarea {
+.haRowInline {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0 2px;
+}
+
+.haInlineLabel {
+  margin: 0;
+  opacity: 0.85;
+}
+
+/* Inputs */
+.haRow input,
+.haRow textarea {
   width: 100%;
   box-sizing: border-box;
   background: rgba(255,255,255,0.05);
@@ -143,68 +166,41 @@
   border-radius: 10px;
   font-size: 18px;
 
-  text-align: left !important;
-  direction: ltr !important;
-
-  user-select: text !important;
-  -webkit-user-select: text !important;
-
-  /* Electron touch sanity */
-  -webkit-appearance: none;
-  -webkit-tap-highlight-color: rgba(0,0,0,0);
-
-  pointer-events: auto !important;
-  touch-action: auto;
+  /* Important for the "tap only works on right edge" symptom:
+     keep text normal and avoid inherited weirdness */
+  text-align: left;
+  direction: ltr;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
-#HA_EVENTADD_PORTAL .haRow input[type="text"] {
-  min-height: 46px;
-}
-
-#HA_EVENTADD_PORTAL .haRow textarea {
+.haRow textarea {
   min-height: 84px;
   resize: none;
 }
 
-#HA_EVENTADD_PORTAL .haRow input:focus,
-#HA_EVENTADD_PORTAL .haRow textarea:focus {
+.haRow input:focus,
+.haRow textarea:focus {
   outline: 2px solid rgba(255,255,255,0.16);
   border-color: rgba(255,255,255,0.22);
 }
 
-/* Hide picker indicators (Chromium/WebKit) */
-#HA_EVENTADD_PORTAL .haRow input[type="datetime-local"]::-webkit-calendar-picker-indicator,
-#HA_EVENTADD_PORTAL .haRow input[type="date"]::-webkit-calendar-picker-indicator {
+.haHint {
+  font-size: 12px;
+  opacity: 0.55;
+  margin-top: -4px;
+  margin-bottom: 8px;
+}
+
+/* Hide datetime picker icon (Chromium/WebKit) */
+.haRow input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   opacity: 0;
   display: none;
   -webkit-appearance: none;
 }
-
-#HA_EVENTADD_PORTAL .haRow input[type="datetime-local"]::-webkit-inner-spin-button,
-#HA_EVENTADD_PORTAL .haRow input[type="datetime-local"]::-webkit-clear-button,
-#HA_EVENTADD_PORTAL .haRow input[type="date"]::-webkit-inner-spin-button,
-#HA_EVENTADD_PORTAL .haRow input[type="date"]::-webkit-clear-button {
+.haRow input[type="datetime-local"]::-webkit-inner-spin-button,
+.haRow input[type="datetime-local"]::-webkit-clear-button {
   display: none;
-}
-
-/* All-day row */
-.haRowInline {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 6px 0 12px;
-}
-
-.haCheck {
-  width: 20px;
-  height: 20px;
-  accent-color: rgba(255, 160, 70, 0.85);
-}
-
-.haInlineLabel {
-  font-size: 14px;
-  color: rgba(255,255,255,0.72);
-  user-select: none;
 }
 
 /* Buttons */
