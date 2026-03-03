@@ -60,7 +60,6 @@
   opacity: 0.65;
 }
 
-/* Accent (no glow, just border/background) */
 .haAddRow.isAccent {
   border-color: rgba(255, 170, 90, 0.55);
   background: rgba(255, 160, 70, 0.10);
@@ -94,7 +93,6 @@
   align-items: center;
 }
 
-/* Overlay */
 .haOverlay {
   background-color: rgba(0, 0, 0, 0.85);
   width: 100%;
@@ -104,7 +102,6 @@
   align-items: center;
 }
 
-/* Modal */
 .haModal {
   background: rgba(17,17,17,0.96);
   border: 1px solid rgba(255,255,255,0.14);
@@ -117,7 +114,6 @@
   pointer-events: auto;
 }
 
-/* Title */
 .haTitle {
   font-size: 24px;
   margin-bottom: 14px;
@@ -126,7 +122,6 @@
   padding-bottom: 10px;
 }
 
-/* Rows */
 .haRow {
   margin-bottom: 10px;
   display: flex;
@@ -154,7 +149,6 @@
   opacity: 0.85;
 }
 
-/* Inputs */
 .haRow input,
 .haRow textarea {
   width: 100%;
@@ -165,12 +159,8 @@
   padding: 10px 10px;
   border-radius: 10px;
   font-size: 18px;
-
-  /* Important for the "tap only works on right edge" symptom:
-     keep text normal and avoid inherited weirdness */
   text-align: left;
   direction: ltr;
-  -webkit-user-select: text;
   user-select: text;
 }
 
@@ -192,18 +182,6 @@
   margin-bottom: 8px;
 }
 
-/* Hide datetime picker icon (Chromium/WebKit) */
-.haRow input[type="datetime-local"]::-webkit-calendar-picker-indicator {
-  opacity: 0;
-  display: none;
-  -webkit-appearance: none;
-}
-.haRow input[type="datetime-local"]::-webkit-inner-spin-button,
-.haRow input[type="datetime-local"]::-webkit-clear-button {
-  display: none;
-}
-
-/* Buttons */
 .haButtons {
   display: flex;
   justify-content: flex-end;
@@ -235,4 +213,32 @@
   border-color: rgba(255, 170, 90, 0.55);
   background: rgba(255, 160, 70, 0.16);
   color: rgba(255,255,255,0.95);
+}
+
+/* =========================
+   SIMPLE-KEYBOARD AREA
+   ========================= */
+
+.haKbWrap {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.10);
+}
+
+/* Keep the keyboard inside the modal and above other stuff */
+.haKb {
+  width: 100%;
+}
+
+/* Slightly tune simple-keyboard look for dark UI */
+.haKb .hg-button {
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.92);
+}
+
+.haKb .hg-button:active {
+  background: rgba(255,255,255,0.10);
+  border-color: rgba(255,255,255,0.22);
 }
