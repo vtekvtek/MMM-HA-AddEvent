@@ -83,10 +83,24 @@ Module.register("MMM-HA-AddEvent", {
 
     btn.append(left, right);
 
-    btn.addEventListener("click", () => this.open());
+    // FIX: make the button reliably work on touch/Electron every time
+    const openHandler = (e) => {
+      try {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      } catch (err) {}
+      this.open();
+    };
+
+    btn.addEventListener("pointerdown", openHandler);
+    btn.addEventListener("click", openHandler);
+
     btn.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
+        e.stopPropagation();
         this.open();
       }
     });
@@ -97,6 +111,12 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   open() {
+    // Undo any defensive hard-close styles (if they were applied)
+    if (this._portal) {
+      this._portal.style.display = "";
+      this._portal.style.pointerEvents = "";
+    }
+
     this._current = this._defaultState();
     this._visible = true;
     this._activeField = "ha_summary";
@@ -130,16 +150,40 @@ Module.register("MMM-HA-AddEvent", {
 
   close() {
     this._visible = false;
-    this._applyVisibility();
 
+    // Always reset saving state so overlay doesn’t trap you
     this._isSaving = false;
-    this._resetBottomBox();
 
-    clearTimeout(this._postSaveTimer);
-    this._postSaveTimer = null;
+    // Best-effort cleanup, never let an exception prevent hiding the portal
+    try {
+      this._resetBottomBox();
+      clearTimeout(this._postSaveTimer);
+      this._postSaveTimer = null;
+    } catch (e) {}
+
+    // HARD close: remove open class and temporarily slam pointer-events/display,
+    // this prevents the invisible portal from blocking taps on the main screen.
+    try {
+      if (this._portal) {
+        this._portal.classList.remove("is-open");
+        this._portal.style.pointerEvents = "none";
+        this._portal.style.display = "none";
+      }
+    } catch (e) {}
+
+    // Let normal CSS control it again (so open() works normally)
+    try {
+      if (this._portal) {
+        this._portal.style.display = "";
+        this._portal.style.pointerEvents = "";
+      }
+    } catch (e) {}
+
+    this._applyVisibility();
   },
 
   _applyVisibility() {
+    if (!this._portal) return;
     this._portal.classList.toggle("is-open", !!this._visible);
   },
 
