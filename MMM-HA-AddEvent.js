@@ -9,33 +9,46 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   start() {
-    this._visible = false;
 
-    this._activeField = "ha_summary";
-    this._keyboard = null;
+  this._visible = false
+  this._activeField = "ha_summary"
 
-    // Keyboard state
-    this._capsLock = false;
-    this._shiftOneShot = false;
-    this._pendingOneShotReset = false;
-    this._autoCapNext = true;
+  this._keyboard = null
 
-    // Timed end behavior
-    this._endManuallyEdited = false;
+  this._capsLock = false
+  this._shiftOneShot = false
+  this._pendingOneShotReset = false
+  this._autoCapNext = true
 
-    // Saving UX
-    this._isSaving = false;
-    this._status = "";
-    this._postSaveTimer = null;
+  this._endManuallyEdited = false
 
-    this._current = this._defaultState();
+  this._isSaving = false
+  this._status = ""
+  this._postSaveTimer = null
 
-    this._portal = document.getElementById("HA_EVENTADD_PORTAL");
-    if (!this._portal) {
-      this._portal = document.createElement("div");
-      this._portal.id = "HA_EVENTADD_PORTAL";
-      document.body.appendChild(this._portal);
-    }
+  this._current = this._defaultState()
+
+  this._portal = document.getElementById("HA_EVENTADD_PORTAL")
+
+  if (!this._portal) {
+    this._portal = document.createElement("div")
+    this._portal.id = "HA_EVENTADD_PORTAL"
+    document.body.appendChild(this._portal)
+  }
+
+  this._refs = {}
+
+  this.sendSocketNotification("CONFIG", this.config)
+
+  // BUILD UI FIRST
+  this._buildOnce()
+
+  // THEN APPLY STATE
+  this._applyVisibility()
+  this._syncUIFromState()
+  this._renderStatus()
+  this._setFormDisabled(false)
+ }
 
     this._refs = {};
 
