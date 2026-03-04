@@ -68,8 +68,8 @@ module.exports = NodeHelper.create({
     const vdirCmd = String(this.cfg.vdirsyncerCmd || "").trim();
     const vdirTimeout = Number(this.cfg.vdirsyncerTimeoutMs || 120000);
 
+    // Local path to the .ics file vdirsyncer writes
     const icsPath = String(this.cfg.calendarIcsPath || "").trim();
-    const icsUrl = String(this.cfg.calendarIcsUrl || "").trim();
 
     if (!haUrl) {
       this.sendSocketNotification("RESULT", { ok: false, error: "Missing haUrl in config" });
@@ -85,10 +85,6 @@ module.exports = NodeHelper.create({
     }
     if (!icsPath) {
       this.sendSocketNotification("RESULT", { ok: false, error: "Missing calendarIcsPath in config" });
-      return;
-    }
-    if (!icsUrl) {
-      this.sendSocketNotification("RESULT", { ok: false, error: "Missing calendarIcsUrl in config" });
       return;
     }
 
@@ -147,31 +143,27 @@ module.exports = NodeHelper.create({
         return;
       }
 
-      // Step 2: vdirsyncer
+      // Step 2: vdirsyncer sync
       const beforeMtime = statMtimeMs(icsPath);
 
       this.sendSocketNotification("PROGRESS", { step: "sync" });
       await execWithTimeout(vdirCmd, vdirTimeout);
 
-      // Step 3: wait for local file to update (friendly message)
-      this.sendSocketNotification("PROGRESS", { step: "Waiting for calendar file to update…" });
+      // Optional: wait for file to update, for better user confidence
+      this.sendSocketNotification("PROGRESS", { step: "Waiting for calendar file…" });
       const bumped = await waitForMtimeBump(icsPath, beforeMtime, 20000);
 
-      // Step 4: tell frontend it can fetch (even if mtime didn't bump)
-      this.sendSocketNotification("PROGRESS", { step: "fetch" });
+      this.sendSocketNotification("PROGRESS", { step: "done" });
 
       if (!bumped) {
-        this.sendSocketNotification("PROGRESS", { step: "done" });
         this.sendSocketNotification("RESULT", {
           ok: true,
-          fetchUrl: icsUrl,
           warning: `vdirsyncer ran but ${path.basename(icsPath)} mtime did not bump`
         });
         return;
       }
 
-      this.sendSocketNotification("PROGRESS", { step: "done" });
-      this.sendSocketNotification("RESULT", { ok: true, fetchUrl: icsUrl });
+      this.sendSocketNotification("RESULT", { ok: true });
     } catch (e) {
       this.sendSocketNotification("RESULT", { ok: false, error: e?.message || String(e) });
     }
