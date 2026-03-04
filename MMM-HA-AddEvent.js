@@ -126,7 +126,6 @@ Module.register("MMM-HA-AddEvent", {
       this._initKeyboardIfNeeded();
       this._applyKeyboardCaseMode(true);
       this._syncKeyboardToActive();
-      this._setKeyboardVisible(true);
     }, 0);
   },
 
@@ -256,13 +255,11 @@ Module.register("MMM-HA-AddEvent", {
 
     const form = document.createElement("div");
 
-    // Status line
     const statusEl = document.createElement("div");
     statusEl.className = "haStatus";
     statusEl.style.display = "none";
     form.appendChild(statusEl);
 
-    // Title
     const summaryRow = this._rowBase("Title", "ha_summary");
     const summary = document.createElement("input");
     summary.type = "text";
@@ -279,7 +276,6 @@ Module.register("MMM-HA-AddEvent", {
     });
     summaryRow.appendChild(summary);
 
-    // All day toggle
     const allDayRow = document.createElement("div");
     allDayRow.className = "haRowInline";
 
@@ -311,9 +307,6 @@ Module.register("MMM-HA-AddEvent", {
       }
 
       this._syncUIFromState();
-
-      // Hide keyboard when on date pickers, show it for text fields
-      this._setKeyboardVisible(true);
       this._syncKeyboardToActive();
     });
 
@@ -326,7 +319,6 @@ Module.register("MMM-HA-AddEvent", {
 
     allDayRow.append(allDayLabel, allDayToggle);
 
-    // Timed container
     const timedWrap = document.createElement("div");
     timedWrap.className = "haTimedWrap";
 
@@ -334,9 +326,7 @@ Module.register("MMM-HA-AddEvent", {
     const startDT = document.createElement("input");
     startDT.type = "datetime-local";
     startDT.id = "ha_start_dt";
-    startDT.classList.add("haDateTimeInput");
     startDT.style.maxWidth = "320px";
-
     this._prepPickerInput(startDT);
 
     startDT.addEventListener("change", () => {
@@ -349,9 +339,7 @@ Module.register("MMM-HA-AddEvent", {
     const endDT = document.createElement("input");
     endDT.type = "datetime-local";
     endDT.id = "ha_end_dt";
-    endDT.classList.add("haDateTimeInput");
     endDT.style.maxWidth = "320px";
-
     this._prepPickerInput(endDT);
 
     endDT.addEventListener("change", () => {
@@ -363,7 +351,6 @@ Module.register("MMM-HA-AddEvent", {
 
     timedWrap.append(startDTRow, endDTRow);
 
-    // All-day container
     const alldayWrap = document.createElement("div");
     alldayWrap.className = "haAllDayWrap";
 
@@ -371,9 +358,7 @@ Module.register("MMM-HA-AddEvent", {
     const startDate = document.createElement("input");
     startDate.type = "date";
     startDate.id = "ha_start_date";
-    startDate.classList.add("haDateTimeInput");
     startDate.style.maxWidth = "260px";
-
     this._prepPickerInput(startDate);
 
     startDate.addEventListener("change", () => {
@@ -391,9 +376,7 @@ Module.register("MMM-HA-AddEvent", {
     const endDate = document.createElement("input");
     endDate.type = "date";
     endDate.id = "ha_end_date";
-    endDate.classList.add("haDateTimeInput");
     endDate.style.maxWidth = "260px";
-
     this._prepPickerInput(endDate);
 
     endDate.addEventListener("change", () => {
@@ -413,7 +396,6 @@ Module.register("MMM-HA-AddEvent", {
 
     alldayWrap.append(startDateRow, endDateRow, hint);
 
-    // Notes
     const descRow = this._rowBase("Notes", "ha_desc");
     const desc = document.createElement("textarea");
     desc.id = "ha_desc";
@@ -429,14 +411,12 @@ Module.register("MMM-HA-AddEvent", {
     });
     descRow.appendChild(desc);
 
-    // Keyboard container
     const kbWrap = document.createElement("div");
     kbWrap.className = "haKbWrap";
     const kb = document.createElement("div");
     kb.className = "simple-keyboard";
     kbWrap.appendChild(kb);
 
-    // Buttons
     const btnBar = document.createElement("div");
     btnBar.className = "haButtons";
 
@@ -477,7 +457,6 @@ Module.register("MMM-HA-AddEvent", {
       endDT,
       startDate,
       endDate,
-      kbWrap,
       kbEl: kb,
       cancelBtn: cancel,
       saveBtn: save
@@ -489,36 +468,19 @@ Module.register("MMM-HA-AddEvent", {
       this._applyKeyboardCaseMode(true);
       this._syncKeyboardToActive();
       this._renderStatus();
-      this._setKeyboardVisible(true);
     }, 0);
   },
 
-  _rowBase(label, id) {
-    const row = document.createElement("div");
-    row.className = "haRow";
-
-    const l = document.createElement("label");
-    l.textContent = label;
-    l.htmlFor = id;
-
-    row.appendChild(l);
-    return row;
-  },
-
-  // Single-tap picker wiring for Electron:
-  // do NOT open on focus, only open on pointerdown.
   _prepPickerInput(inputEl) {
     if (!inputEl) return;
 
-    // Ask browser to prefer light UI if it honors it
+    // Prefer light system UI if respected
     try { inputEl.style.colorScheme = "light"; } catch (e) {}
 
+    // Single tap: open picker only on pointerdown, not focus.
     inputEl.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       if (this._isSaving) return;
-
-      // Hide keyboard when using pickers so it does not fight focus
-      this._setKeyboardVisible(false);
       this._showPicker(inputEl);
     });
   },
@@ -549,15 +511,8 @@ Module.register("MMM-HA-AddEvent", {
     this._shiftOneShot = false;
     this._pendingOneShotReset = false;
 
-    this._setKeyboardVisible(true);
     this._applyKeyboardCaseMode(true);
     this._syncKeyboardToActive();
-  },
-
-  _setKeyboardVisible(show) {
-    const wrap = this._refs?.kbWrap;
-    if (!wrap) return;
-    wrap.style.display = show ? "block" : "none";
   },
 
   _initKeyboardIfNeeded() {
@@ -713,7 +668,6 @@ Module.register("MMM-HA-AddEvent", {
     this._refs.timedWrap.style.display = this._current.allDay ? "none" : "block";
     this._refs.alldayWrap.style.display = this._current.allDay ? "block" : "none";
 
-    // Only auto-set end if we are in timed mode AND user has not edited it.
     if (!this._current.allDay && !this._endManuallyEdited) {
       this._autoSetTimedEndFromStart();
     }
@@ -741,9 +695,6 @@ Module.register("MMM-HA-AddEvent", {
     this._status = statusText || "";
     this._renderStatus();
     this._setFormDisabled(this._isSaving);
-
-    // While saving, hide the keyboard so UI looks intentional
-    if (this._isSaving) this._setKeyboardVisible(false);
   },
 
   _renderStatus() {
@@ -835,8 +786,6 @@ Module.register("MMM-HA-AddEvent", {
         return;
       }
 
-      // HA calendar.create_event expects end_date to be exclusive.
-      // UI is inclusive, so we add 1 day automatically.
       const endExclusive = this._addDaysDateOnly(this._current.endDate, 1);
 
       this.sendSocketNotification("CREATE_EVENT", {
@@ -849,7 +798,6 @@ Module.register("MMM-HA-AddEvent", {
       return;
     }
 
-    // Timed event: always keep end valid and defaulted to +60 minutes
     this._ensureTimedEndValid();
 
     const start = new Date(this._current.startDT);
@@ -885,12 +833,10 @@ Module.register("MMM-HA-AddEvent", {
 
     if (payload && payload.ok) {
       this._setSaving(false, "");
-      this._setKeyboardVisible(false);
       this._showPostSaveNotice();
     } else {
       const msg = payload && payload.error ? payload.error : "unknown error";
       this._setSaving(false, `Failed: ${msg}`);
-      this._setKeyboardVisible(true);
     }
   }
 });
