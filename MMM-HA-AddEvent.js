@@ -10,23 +10,22 @@ Module.register("MMM-HA-AddEvent", {
 
   start() {
     this._visible = false;
-    this._activeField = "ha_summary";
 
+    this._activeField = "ha_summary";
     this._keyboard = null;
 
-    // Keyboard state
     this._capsLock = false;
     this._shiftOneShot = false;
     this._pendingOneShotReset = false;
+
     this._autoCapNext = true;
 
-    // Timed end tracking
     this._endManuallyEdited = false;
-
-    // Saving / UX
-    this._isSaving = false;
-    this._status = "";
     this._postSaveTimer = null;
+
+    // Progress state
+    this._isSaving = false;
+    this._statusText = "";
 
     this._current = this._defaultState();
 
@@ -40,12 +39,10 @@ Module.register("MMM-HA-AddEvent", {
     this._refs = {};
 
     this.sendSocketNotification("CONFIG", this.config);
-
-    // Build UI first, then apply state
     this._buildOnce();
     this._applyVisibility();
     this._syncUIFromState();
-    this._renderStatus();
+    this._setStatus("");
     this._setFormDisabled(false);
   },
 
@@ -109,21 +106,25 @@ Module.register("MMM-HA-AddEvent", {
 
     this._endManuallyEdited = false;
 
-    this._setSaving(false, "");
-    this._removePostSaveNotice();
-
     this._capsLock = false;
     this._shiftOneShot = false;
     this._pendingOneShotReset = false;
     this._autoCapNext = true;
 
+    this._isSaving = false;
+    this._setStatus("");
+    this._setFormDisabled(false);
+
     this._applyVisibility();
     this._syncUIFromState();
+
+    this._removePostSaveNotice();
+    clearTimeout(this._postSaveTimer);
+    this._postSaveTimer = null;
 
     setTimeout(() => {
       const el = this._refs.summary;
       if (el) el.focus({ preventScroll: true });
-
       this._initKeyboardIfNeeded();
       this._applyKeyboardCaseMode(true);
       this._syncKeyboardToActive();
@@ -132,18 +133,18 @@ Module.register("MMM-HA-AddEvent", {
 
   close() {
     this._visible = false;
+    this._applyVisibility();
 
-    this._setSaving(false, "");
+    this._isSaving = false;
+    this._setStatus("");
+    this._setFormDisabled(false);
+
     this._removePostSaveNotice();
-
     clearTimeout(this._postSaveTimer);
     this._postSaveTimer = null;
-
-    this._applyVisibility();
   },
 
   _applyVisibility() {
-    if (!this._portal) return;
     this._portal.classList.toggle("is-open", !!this._visible);
   },
 
@@ -159,14 +160,20 @@ Module.register("MMM-HA-AddEvent", {
     const duration = Math.max(5, Number(this.config.defaultDurationMinutes) || 60);
     const end = new Date(now.getTime() + duration * 60 * 1000);
 
+    const startDT = this._toDateTimeLocal(now);
+    const endDT = this._toDateTimeLocal(end);
+
+    const startDate = this._toDateOnly(now);
+    const endDate = startDate;
+
     return {
       summary: "",
       description: "",
       allDay: false,
-      startDT: this._toDateTimeLocal(now),
-      endDT: this._toDateTimeLocal(end),
-      startDate: this._toDateOnly(now),
-      endDate: this._toDateOnly(now)
+      startDT,
+      endDT,
+      startDate,
+      endDate
     };
   },
 
@@ -217,8 +224,19 @@ Module.register("MMM-HA-AddEvent", {
     if (!s) return;
 
     if (!e || e <= s) {
-      this._current.endDT = this._addMinutesDateTimeLocal(this._current.startDT, 60);
-      if (this._refs?.endDT) this._refs.endDT.value = this._current.endDT;
+      this._setEndDT(this._addMinutesDateTimeLocal(this._current.startDT, 60));
+    }
+  },
+
+  _setEndDT(newVal) {
+    const v = String(newVal || "");
+    if (!v) return;
+
+    if (this._current.endDT === v) return;
+
+    this._current.endDT = v;
+    if (this._refs?.endDT && this._refs.endDT.value !== v) {
+      this._refs.endDT.value = v;
     }
   },
 
@@ -227,8 +245,7 @@ Module.register("MMM-HA-AddEvent", {
       this._ensureTimedEndValid();
       return;
     }
-    this._current.endDT = this._addMinutesDateTimeLocal(this._current.startDT, 60);
-    if (this._refs?.endDT) this._refs.endDT.value = this._current.endDT;
+    this._setEndDT(this._addMinutesDateTimeLocal(this._current.startDT, 60));
   },
 
   _buildOnce() {
@@ -239,13 +256,17 @@ Module.register("MMM-HA-AddEvent", {
 
     const overlay = document.createElement("div");
     overlay.className = "haOverlay";
+
     overlay.addEventListener("pointerdown", (e) => {
       if (e.target === overlay) this.close();
     });
 
     const modal = document.createElement("div");
     modal.className = "haModal";
-    modal.addEventListener("pointerdown", (e) => e.stopPropagation());
+
+    modal.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+    });
 
     const title = document.createElement("div");
     title.className = "haTitle";
@@ -253,30 +274,35 @@ Module.register("MMM-HA-AddEvent", {
 
     const form = document.createElement("div");
 
-    // Status
-    const statusEl = document.createElement("div");
-    statusEl.className = "haStatus";
-    statusEl.style.display = "none";
-    form.appendChild(statusEl);
+    // Status row (progress)
+    const status = document.createElement("div");
+    status.className = "haSaveStatus";
+    status.style.display = "none";
+    status.style.marginBottom = "10px";
+    status.style.padding = "10px 12px";
+    status.style.borderRadius = "10px";
+    status.style.border = "1px solid rgba(255,255,255,0.14)";
+    status.style.background = "rgba(255,255,255,0.06)";
+    status.style.fontSize = "18px";
+    status.style.opacity = "0.92";
+    form.appendChild(status);
 
-    // Title
+    // Title row
     const summaryRow = this._rowBase("Title", "ha_summary");
     const summary = document.createElement("input");
     summary.type = "text";
     summary.id = "ha_summary";
-
     summary.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
-      if (!this._isSaving) this._setActiveField("ha_summary");
+      this._setActiveField("ha_summary");
     });
-
     summary.addEventListener("input", () => {
       this._current.summary = summary.value;
       this._syncKeyboardToActive();
     });
     summaryRow.appendChild(summary);
 
-    // All day
+    // All day row
     const allDayRow = document.createElement("div");
     allDayRow.className = "haRowInline";
 
@@ -288,7 +314,6 @@ Module.register("MMM-HA-AddEvent", {
     allDayToggle.type = "checkbox";
     allDayToggle.id = "ha_allday";
     allDayToggle.className = "haCheck";
-
     allDayToggle.addEventListener("change", () => {
       if (this._isSaving) return;
 
@@ -308,7 +333,6 @@ Module.register("MMM-HA-AddEvent", {
       }
 
       this._syncUIFromState();
-      this._syncKeyboardToActive();
     });
 
     allDayLabel.addEventListener("pointerdown", (e) => {
@@ -320,7 +344,7 @@ Module.register("MMM-HA-AddEvent", {
 
     allDayRow.append(allDayLabel, allDayToggle);
 
-    // Timed wrap
+    // Timed container
     const timedWrap = document.createElement("div");
     timedWrap.className = "haTimedWrap";
 
@@ -328,8 +352,14 @@ Module.register("MMM-HA-AddEvent", {
     const startDT = document.createElement("input");
     startDT.type = "datetime-local";
     startDT.id = "ha_start_dt";
-    startDT.style.maxWidth = "320px";
-    this._prepPickerInput(startDT);
+    startDT.classList.add("haDtCompact");
+
+    // Use pointerdown for single tap behavior in Electron
+    startDT.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      if (this._isSaving) return;
+      this._showPicker(startDT);
+    });
 
     startDT.addEventListener("change", () => {
       this._current.startDT = startDT.value;
@@ -341,8 +371,13 @@ Module.register("MMM-HA-AddEvent", {
     const endDT = document.createElement("input");
     endDT.type = "datetime-local";
     endDT.id = "ha_end_dt";
-    endDT.style.maxWidth = "320px";
-    this._prepPickerInput(endDT);
+    endDT.classList.add("haDtCompact");
+
+    endDT.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      if (this._isSaving) return;
+      this._showPicker(endDT);
+    });
 
     endDT.addEventListener("change", () => {
       this._current.endDT = endDT.value;
@@ -353,7 +388,7 @@ Module.register("MMM-HA-AddEvent", {
 
     timedWrap.append(startDTRow, endDTRow);
 
-    // All-day wrap
+    // All-day container
     const alldayWrap = document.createElement("div");
     alldayWrap.className = "haAllDayWrap";
 
@@ -361,16 +396,22 @@ Module.register("MMM-HA-AddEvent", {
     const startDate = document.createElement("input");
     startDate.type = "date";
     startDate.id = "ha_start_date";
-    startDate.style.maxWidth = "260px";
-    this._prepPickerInput(startDate);
+    startDate.classList.add("haDtCompact");
+
+    startDate.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      if (this._isSaving) return;
+      this._showPicker(startDate);
+    });
 
     startDate.addEventListener("change", () => {
       this._current.startDate = startDate.value;
+
       const s = this._parseDateOnly(this._current.startDate);
       const ed = this._parseDateOnly(this._current.endDate);
       if (s && (!ed || ed < s)) {
         this._current.endDate = this._current.startDate;
-        if (this._refs?.endDate) this._refs.endDate.value = this._current.endDate;
+        endDate.value = this._current.endDate;
       }
     });
     startDateRow.appendChild(startDate);
@@ -379,8 +420,13 @@ Module.register("MMM-HA-AddEvent", {
     const endDate = document.createElement("input");
     endDate.type = "date";
     endDate.id = "ha_end_date";
-    endDate.style.maxWidth = "260px";
-    this._prepPickerInput(endDate);
+    endDate.classList.add("haDtCompact");
+
+    endDate.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      if (this._isSaving) return;
+      this._showPicker(endDate);
+    });
 
     endDate.addEventListener("change", () => {
       this._current.endDate = endDate.value;
@@ -399,23 +445,21 @@ Module.register("MMM-HA-AddEvent", {
 
     alldayWrap.append(startDateRow, endDateRow, hint);
 
-    // Notes
+    // Notes row
     const descRow = this._rowBase("Notes", "ha_desc");
     const desc = document.createElement("textarea");
     desc.id = "ha_desc";
-
     desc.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
-      if (!this._isSaving) this._setActiveField("ha_desc");
+      this._setActiveField("ha_desc");
     });
-
     desc.addEventListener("input", () => {
       this._current.description = desc.value;
       this._syncKeyboardToActive();
     });
     descRow.appendChild(desc);
 
-    // Keyboard
+    // Keyboard container
     const kbWrap = document.createElement("div");
     kbWrap.className = "haKbWrap";
     const kb = document.createElement("div");
@@ -431,7 +475,8 @@ Module.register("MMM-HA-AddEvent", {
     cancel.type = "button";
     cancel.textContent = "Cancel";
     cancel.addEventListener("click", () => {
-      if (!this._isSaving) this.close();
+      if (this._isSaving) return;
+      this.close();
     });
 
     const save = document.createElement("button");
@@ -452,8 +497,6 @@ Module.register("MMM-HA-AddEvent", {
     this._refs = {
       overlay,
       modal,
-      form,
-      statusEl,
       summary,
       desc,
       allDayToggle,
@@ -464,8 +507,9 @@ Module.register("MMM-HA-AddEvent", {
       startDate,
       endDate,
       kbEl: kb,
-      cancelBtn: cancel,
-      saveBtn: save
+      statusEl: status,
+      saveBtn: save,
+      cancelBtn: cancel
     };
 
     setTimeout(() => {
@@ -473,7 +517,6 @@ Module.register("MMM-HA-AddEvent", {
       this._syncUIFromState();
       this._applyKeyboardCaseMode(true);
       this._syncKeyboardToActive();
-      this._renderStatus();
     }, 0);
   },
 
@@ -489,39 +532,28 @@ Module.register("MMM-HA-AddEvent", {
     return row;
   },
 
-  _prepPickerInput(inputEl) {
-    if (!inputEl) return;
-
-    // Try to request light picker UI where supported
-    try { inputEl.style.colorScheme = "light"; } catch (e) {}
-
-    // Single tap open
-    inputEl.addEventListener("pointerdown", (e) => {
-      e.stopPropagation();
-      if (this._isSaving) return;
-      this._showPicker(inputEl);
-    });
-  },
-
   _showPicker(inputEl) {
     if (!inputEl) return;
 
-    try {
-      if (typeof inputEl.showPicker === "function") {
-        inputEl.showPicker();
-        return;
-      }
-    } catch (e) {}
-
+    // Focus first, then try showPicker, then click fallback
     try { inputEl.focus({ preventScroll: true }); } catch (e) {}
-    try { inputEl.click(); } catch (e) {}
+
+    setTimeout(() => {
+      try {
+        if (typeof inputEl.showPicker === "function") {
+          inputEl.showPicker();
+          return;
+        }
+      } catch (e) {}
+
+      try { inputEl.click(); } catch (e) {}
+    }, 0);
   },
 
   _setActiveField(id) {
     if (this._isSaving) return;
 
     this._activeField = id;
-
     const el = document.getElementById(id);
     if (el) el.focus({ preventScroll: true });
 
@@ -686,9 +718,16 @@ Module.register("MMM-HA-AddEvent", {
     this._refs.timedWrap.style.display = this._current.allDay ? "none" : "block";
     this._refs.alldayWrap.style.display = this._current.allDay ? "block" : "none";
 
-    if (!this._current.allDay && !this._endManuallyEdited) {
-      this._autoSetTimedEndFromStart();
-    }
+    // IMPORTANT: do not auto-edit endDT here, to avoid flashing
+  },
+
+  _setStatus(text) {
+    this._statusText = String(text || "");
+    const el = this._refs?.statusEl;
+    if (!el) return;
+
+    el.textContent = this._statusText;
+    el.style.display = this._statusText ? "block" : "none";
   },
 
   _setFormDisabled(disabled) {
@@ -706,21 +745,110 @@ Module.register("MMM-HA-AddEvent", {
 
     if (r.saveBtn) r.saveBtn.disabled = !!disabled;
     if (r.cancelBtn) r.cancelBtn.disabled = !!disabled;
+
+    // Keep overlay clickable to close only when not saving
+    if (r.overlay) {
+      r.overlay.style.pointerEvents = disabled ? "none" : "auto";
+    }
   },
 
-  _setSaving(isSaving, statusText) {
-    this._isSaving = !!isSaving;
-    this._status = statusText || "";
-    this._renderStatus();
-    this._setFormDisabled(this._isSaving);
+  _submit() {
+    if (this._isSaving) return;
+
+    const summary = (this._current.summary || "").trim();
+    const description = (this._current.description || "").trim();
+
+    if (!summary) {
+      alert("Title is required.");
+      return;
+    }
+
+    this._removePostSaveNotice();
+    clearTimeout(this._postSaveTimer);
+    this._postSaveTimer = null;
+
+    this._isSaving = true;
+    this._setFormDisabled(true);
+    this._setStatus("Saving to calendar…");
+
+    if (this._current.allDay) {
+      const s = this._parseDateOnly(this._current.startDate);
+      const e = this._parseDateOnly(this._current.endDate);
+
+      if (!s || !e) {
+        this._isSaving = false;
+        this._setFormDisabled(false);
+        this._setStatus("");
+        alert("Start Date and End Date are required.");
+        return;
+      }
+      if (e < s) {
+        this._isSaving = false;
+        this._setFormDisabled(false);
+        this._setStatus("");
+        alert("End Date must be on or after Start Date.");
+        return;
+      }
+
+      const endExclusive = this._addDaysDateOnly(this._current.endDate, 1);
+
+      this.sendSocketNotification("CREATE_EVENT", {
+        allDay: true,
+        summary,
+        description,
+        start_date: this._current.startDate,
+        end_date: endExclusive
+      });
+      return;
+    }
+
+    this._ensureTimedEndValid();
+
+    const start = new Date(this._current.startDT);
+    const end = new Date(this._current.endDT);
+
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+      this._isSaving = false;
+      this._setFormDisabled(false);
+      this._setStatus("");
+      alert("End time must be after start time.");
+      return;
+    }
+
+    this.sendSocketNotification("CREATE_EVENT", {
+      allDay: false,
+      summary,
+      description,
+      start_date_time: new Date(this._current.startDT).toISOString(),
+      end_date_time: new Date(this._current.endDT).toISOString()
+    });
   },
 
-  _renderStatus() {
-    const el = this._refs?.statusEl;
-    if (!el) return;
+  socketNotificationReceived(notification, payload) {
+    // Optional: node_helper can emit PROGRESS steps
+    if (notification === "PROGRESS") {
+      const step = String(payload?.step || "");
+      if (step === "ha") this._setStatus("Saving to calendar…");
+      else if (step === "sync") this._setStatus("Syncing iCloud…");
+      else if (step === "fetch") this._setStatus("Refreshing mirror…");
+      else if (step === "done") this._setStatus("Saved.");
+      else if (step) this._setStatus(step);
+      return;
+    }
 
-    el.textContent = this._status || "";
-    el.style.display = this._status ? "block" : "none";
+    if (notification !== "RESULT") return;
+
+    this._isSaving = false;
+    this._setFormDisabled(false);
+    this._setStatus("");
+
+    if (payload && payload.ok) {
+      this._showPostSaveNotice();
+      return;
+    }
+
+    const msg = payload && payload.error ? payload.error : "unknown error";
+    alert(`Failed: ${msg}`);
   },
 
   _removePostSaveNotice() {
@@ -741,21 +869,13 @@ Module.register("MMM-HA-AddEvent", {
 
     const box = document.createElement("div");
     box.className = "haPostSaveNotice";
-    box.style.marginTop = "14px";
-    box.style.padding = "14px";
-    box.style.borderRadius = "12px";
-    box.style.border = "1px solid rgba(255,255,255,0.14)";
-    box.style.background = "rgba(255,255,255,0.06)";
-
     box.innerHTML = `
-      <div style="font-size:24px; line-height:1.25; opacity:0.96;">
+      <div class="haPostSaveText" style="font-size:22px; line-height:1.3;">
         Saved.<br/>
-        It will show on the mirror after the next calendar refresh, about 10 minutes.
+        Event will show on the mirror after the next calendar refresh (about 10 minutes).
       </div>
-      <div style="margin-top:14px; display:flex; justify-content:flex-end;">
-        <button class="haBtn save haPostSaveOk" type="button" style="font-size:18px; padding:12px 20px;">
-          OK
-        </button>
+      <div class="haPostSaveBtns" style="margin-top:10px;">
+        <button class="haBtn save haPostSaveOk" type="button">OK</button>
       </div>
     `;
 
@@ -772,90 +892,6 @@ Module.register("MMM-HA-AddEvent", {
     if (ok) ok.addEventListener("click", cleanup);
 
     clearTimeout(this._postSaveTimer);
-    this._postSaveTimer = setTimeout(cleanup, 5000);
-  },
-
-  _submit() {
-    if (this._isSaving) return;
-
-    const summary = (this._current.summary || "").trim();
-    const description = (this._current.description || "").trim();
-
-    if (!summary) {
-      alert("Title is required.");
-      return;
-    }
-
-    this._removePostSaveNotice();
-    this._setSaving(true, "Saving to calendar…");
-
-    if (this._current.allDay) {
-      const s = this._parseDateOnly(this._current.startDate);
-      const e = this._parseDateOnly(this._current.endDate);
-
-      if (!s || !e) {
-        this._setSaving(false, "");
-        alert("Start Date and End Date are required.");
-        return;
-      }
-      if (e < s) {
-        this._setSaving(false, "");
-        alert("End Date must be on or after Start Date.");
-        return;
-      }
-
-      // HA expects end_date exclusive
-      const endExclusive = this._addDaysDateOnly(this._current.endDate, 1);
-
-      this.sendSocketNotification("CREATE_EVENT", {
-        allDay: true,
-        summary,
-        description,
-        start_date: this._current.startDate,
-        end_date: endExclusive
-      });
-      return;
-    }
-
-    this._ensureTimedEndValid();
-
-    const start = new Date(this._current.startDT);
-    const end = new Date(this._current.endDT);
-
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
-      this._setSaving(false, "");
-      alert("End time must be after start time.");
-      return;
-    }
-
-    this.sendSocketNotification("CREATE_EVENT", {
-      allDay: false,
-      summary,
-      description,
-      start_date_time: new Date(this._current.startDT).toISOString(),
-      end_date_time: new Date(this._current.endDT).toISOString()
-    });
-  },
-
-  socketNotificationReceived(notification, payload) {
-    if (notification === "PROGRESS") {
-      const step = payload?.step || "";
-      if (step === "ha") this._setSaving(true, "Saving to calendar…");
-      else if (step === "sync") this._setSaving(true, "Syncing iCloud…");
-      else if (step === "fetch") this._setSaving(true, "Refreshing mirror…");
-      else if (step === "done") this._setSaving(true, "Saved.");
-      else if (step) this._setSaving(true, String(step));
-      return;
-    }
-
-    if (notification !== "RESULT") return;
-
-    if (payload && payload.ok) {
-      this._setSaving(false, "");
-      this._showPostSaveNotice();
-    } else {
-      const msg = payload && payload.error ? payload.error : "unknown error";
-      this._setSaving(false, `Failed: ${msg}`);
-    }
+    this._postSaveTimer = setTimeout(cleanup, 8000);
   }
 });
