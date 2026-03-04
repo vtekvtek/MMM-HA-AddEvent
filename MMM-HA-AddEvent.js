@@ -10,16 +10,20 @@ Module.register("MMM-HA-AddEvent", {
 
   start() {
     this._visible = false;
+
     this._activeField = "ha_summary";
     this._keyboard = null;
 
+    // Keyboard state
     this._capsLock = false;
     this._shiftOneShot = false;
     this._pendingOneShotReset = false;
     this._autoCapNext = true;
 
+    // Timed end behavior
     this._endManuallyEdited = false;
 
+    // Saving UX
     this._isSaving = false;
     this._status = "";
     this._postSaveTimer = null;
@@ -114,8 +118,6 @@ Module.register("MMM-HA-AddEvent", {
 
     this._applyVisibility();
     this._syncUIFromState();
-    this._renderStatus();
-    this._setFormDisabled(false);
 
     setTimeout(() => {
       const el = this._refs.summary;
@@ -124,6 +126,7 @@ Module.register("MMM-HA-AddEvent", {
       this._initKeyboardIfNeeded();
       this._applyKeyboardCaseMode(true);
       this._syncKeyboardToActive();
+      this._setKeyboardVisible(true);
     }, 0);
   },
 
@@ -153,22 +156,16 @@ Module.register("MMM-HA-AddEvent", {
     now.setMinutes(rounded);
 
     const duration = Math.max(5, Number(this.config.defaultDurationMinutes) || 60);
-    const end = new Date(now.getTime() + duration * 60000);
-
-    const startDT = this._toDateTimeLocal(now);
-    const endDT = this._toDateTimeLocal(end);
-
-    const startDate = this._toDateOnly(now);
-    const endDate = startDate;
+    const end = new Date(now.getTime() + duration * 60 * 1000);
 
     return {
       summary: "",
       description: "",
       allDay: false,
-      startDT,
-      endDT,
-      startDate,
-      endDate
+      startDT: this._toDateTimeLocal(now),
+      endDT: this._toDateTimeLocal(end),
+      startDate: this._toDateOnly(now),
+      endDate: this._toDateOnly(now)
     };
   },
 
@@ -218,22 +215,18 @@ Module.register("MMM-HA-AddEvent", {
     const e = this._parseDateTimeLocal(this._current.endDT);
     if (!s) return;
 
-    const dur = Math.max(5, Number(this.config.defaultDurationMinutes) || 60);
     if (!e || e <= s) {
-      this._current.endDT = this._addMinutesDateTimeLocal(this._current.startDT, dur);
+      this._current.endDT = this._addMinutesDateTimeLocal(this._current.startDT, 60);
       if (this._refs?.endDT) this._refs.endDT.value = this._current.endDT;
     }
   },
 
   _autoSetTimedEndFromStart() {
-    const dur = Math.max(5, Number(this.config.defaultDurationMinutes) || 60);
-
     if (this._endManuallyEdited) {
       this._ensureTimedEndValid();
       return;
     }
-
-    this._current.endDT = this._addMinutesDateTimeLocal(this._current.startDT, dur);
+    this._current.endDT = this._addMinutesDateTimeLocal(this._current.startDT, 60);
     if (this._refs?.endDT) this._refs.endDT.value = this._current.endDT;
   },
 
@@ -245,13 +238,17 @@ Module.register("MMM-HA-AddEvent", {
 
     const overlay = document.createElement("div");
     overlay.className = "haOverlay";
+
     overlay.addEventListener("pointerdown", (e) => {
       if (e.target === overlay) this.close();
     });
 
     const modal = document.createElement("div");
     modal.className = "haModal";
-    modal.addEventListener("pointerdown", (e) => e.stopPropagation());
+
+    modal.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+    });
 
     const title = document.createElement("div");
     title.className = "haTitle";
@@ -259,28 +256,30 @@ Module.register("MMM-HA-AddEvent", {
 
     const form = document.createElement("div");
 
-    // Status line (hidden unless saving/progress)
+    // Status line
     const statusEl = document.createElement("div");
     statusEl.className = "haStatus";
     statusEl.style.display = "none";
     form.appendChild(statusEl);
 
-    // Title row
+    // Title
     const summaryRow = this._rowBase("Title", "ha_summary");
     const summary = document.createElement("input");
     summary.type = "text";
     summary.id = "ha_summary";
+
     summary.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       if (!this._isSaving) this._setActiveField("ha_summary");
     });
+
     summary.addEventListener("input", () => {
       this._current.summary = summary.value;
       this._syncKeyboardToActive();
     });
     summaryRow.appendChild(summary);
 
-    // All day row
+    // All day toggle
     const allDayRow = document.createElement("div");
     allDayRow.className = "haRowInline";
 
@@ -292,6 +291,7 @@ Module.register("MMM-HA-AddEvent", {
     allDayToggle.type = "checkbox";
     allDayToggle.id = "ha_allday";
     allDayToggle.className = "haCheck";
+
     allDayToggle.addEventListener("change", () => {
       if (this._isSaving) return;
 
@@ -301,9 +301,8 @@ Module.register("MMM-HA-AddEvent", {
         const base = this._current.startDT
           ? String(this._current.startDT).split("T")[0]
           : this._toDateOnly(new Date());
-
         this._current.startDate = base;
-        this._current.endDate = base; // inclusive in UI
+        this._current.endDate = base;
       } else {
         const fresh = this._defaultState();
         this._current.startDT = fresh.startDT;
@@ -312,6 +311,9 @@ Module.register("MMM-HA-AddEvent", {
       }
 
       this._syncUIFromState();
+
+      // Hide keyboard when on date pickers, show it for text fields
+      this._setKeyboardVisible(true);
       this._syncKeyboardToActive();
     });
 
@@ -332,9 +334,11 @@ Module.register("MMM-HA-AddEvent", {
     const startDT = document.createElement("input");
     startDT.type = "datetime-local";
     startDT.id = "ha_start_dt";
-    startDT.style.maxWidth = "330px";
+    startDT.classList.add("haDateTimeInput");
+    startDT.style.maxWidth = "320px";
 
     this._prepPickerInput(startDT);
+
     startDT.addEventListener("change", () => {
       this._current.startDT = startDT.value;
       this._autoSetTimedEndFromStart();
@@ -345,9 +349,11 @@ Module.register("MMM-HA-AddEvent", {
     const endDT = document.createElement("input");
     endDT.type = "datetime-local";
     endDT.id = "ha_end_dt";
-    endDT.style.maxWidth = "330px";
+    endDT.classList.add("haDateTimeInput");
+    endDT.style.maxWidth = "320px";
 
     this._prepPickerInput(endDT);
+
     endDT.addEventListener("change", () => {
       this._current.endDT = endDT.value;
       this._endManuallyEdited = true;
@@ -365,12 +371,13 @@ Module.register("MMM-HA-AddEvent", {
     const startDate = document.createElement("input");
     startDate.type = "date";
     startDate.id = "ha_start_date";
+    startDate.classList.add("haDateTimeInput");
     startDate.style.maxWidth = "260px";
 
     this._prepPickerInput(startDate);
+
     startDate.addEventListener("change", () => {
       this._current.startDate = startDate.value;
-
       const s = this._parseDateOnly(this._current.startDate);
       const ed = this._parseDateOnly(this._current.endDate);
       if (s && (!ed || ed < s)) {
@@ -384,9 +391,11 @@ Module.register("MMM-HA-AddEvent", {
     const endDate = document.createElement("input");
     endDate.type = "date";
     endDate.id = "ha_end_date";
+    endDate.classList.add("haDateTimeInput");
     endDate.style.maxWidth = "260px";
 
     this._prepPickerInput(endDate);
+
     endDate.addEventListener("change", () => {
       this._current.endDate = endDate.value;
       const s = this._parseDateOnly(this._current.startDate);
@@ -404,14 +413,16 @@ Module.register("MMM-HA-AddEvent", {
 
     alldayWrap.append(startDateRow, endDateRow, hint);
 
-    // Notes row
+    // Notes
     const descRow = this._rowBase("Notes", "ha_desc");
     const desc = document.createElement("textarea");
     desc.id = "ha_desc";
+
     desc.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       if (!this._isSaving) this._setActiveField("ha_desc");
     });
+
     desc.addEventListener("input", () => {
       this._current.description = desc.value;
       this._syncKeyboardToActive();
@@ -421,7 +432,6 @@ Module.register("MMM-HA-AddEvent", {
     // Keyboard container
     const kbWrap = document.createElement("div");
     kbWrap.className = "haKbWrap";
-
     const kb = document.createElement("div");
     kb.className = "simple-keyboard";
     kbWrap.appendChild(kb);
@@ -435,8 +445,7 @@ Module.register("MMM-HA-AddEvent", {
     cancel.type = "button";
     cancel.textContent = "Cancel";
     cancel.addEventListener("click", () => {
-      if (this._isSaving) return;
-      this.close();
+      if (!this._isSaving) this.close();
     });
 
     const save = document.createElement("button");
@@ -480,7 +489,7 @@ Module.register("MMM-HA-AddEvent", {
       this._applyKeyboardCaseMode(true);
       this._syncKeyboardToActive();
       this._renderStatus();
-      this._setFormDisabled(false);
+      this._setKeyboardVisible(true);
     }, 0);
   },
 
@@ -496,21 +505,20 @@ Module.register("MMM-HA-AddEvent", {
     return row;
   },
 
+  // Single-tap picker wiring for Electron:
+  // do NOT open on focus, only open on pointerdown.
   _prepPickerInput(inputEl) {
     if (!inputEl) return;
 
-    // Try to force readable picker in some Electron builds
+    // Ask browser to prefer light UI if it honors it
     try { inputEl.style.colorScheme = "light"; } catch (e) {}
 
-    // One tap should open, no repeated click loops
     inputEl.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       if (this._isSaving) return;
-      this._showPicker(inputEl);
-    });
 
-    inputEl.addEventListener("focus", () => {
-      if (this._isSaving) return;
+      // Hide keyboard when using pickers so it does not fight focus
+      this._setKeyboardVisible(false);
       this._showPicker(inputEl);
     });
   },
@@ -525,15 +533,15 @@ Module.register("MMM-HA-AddEvent", {
       }
     } catch (e) {}
 
-    try {
-      inputEl.focus({ preventScroll: true });
-    } catch (e) {}
+    try { inputEl.focus({ preventScroll: true }); } catch (e) {}
+    try { inputEl.click(); } catch (e) {}
   },
 
   _setActiveField(id) {
     if (this._isSaving) return;
 
     this._activeField = id;
+
     const el = document.getElementById(id);
     if (el) el.focus({ preventScroll: true });
 
@@ -541,8 +549,15 @@ Module.register("MMM-HA-AddEvent", {
     this._shiftOneShot = false;
     this._pendingOneShotReset = false;
 
+    this._setKeyboardVisible(true);
     this._applyKeyboardCaseMode(true);
     this._syncKeyboardToActive();
+  },
+
+  _setKeyboardVisible(show) {
+    const wrap = this._refs?.kbWrap;
+    if (!wrap) return;
+    wrap.style.display = show ? "block" : "none";
   },
 
   _initKeyboardIfNeeded() {
@@ -698,7 +713,97 @@ Module.register("MMM-HA-AddEvent", {
     this._refs.timedWrap.style.display = this._current.allDay ? "none" : "block";
     this._refs.alldayWrap.style.display = this._current.allDay ? "block" : "none";
 
-    if (!this._current.allDay) this._autoSetTimedEndFromStart();
+    // Only auto-set end if we are in timed mode AND user has not edited it.
+    if (!this._current.allDay && !this._endManuallyEdited) {
+      this._autoSetTimedEndFromStart();
+    }
+  },
+
+  _setFormDisabled(disabled) {
+    const r = this._refs;
+    if (!r) return;
+
+    const els = [
+      r.summary, r.desc, r.allDayToggle,
+      r.startDT, r.endDT, r.startDate, r.endDate
+    ].filter(Boolean);
+
+    els.forEach((el) => {
+      try { el.disabled = !!disabled; } catch (e) {}
+    });
+
+    if (r.saveBtn) r.saveBtn.disabled = !!disabled;
+    if (r.cancelBtn) r.cancelBtn.disabled = !!disabled;
+  },
+
+  _setSaving(isSaving, statusText) {
+    this._isSaving = !!isSaving;
+    this._status = statusText || "";
+    this._renderStatus();
+    this._setFormDisabled(this._isSaving);
+
+    // While saving, hide the keyboard so UI looks intentional
+    if (this._isSaving) this._setKeyboardVisible(false);
+  },
+
+  _renderStatus() {
+    const el = this._refs?.statusEl;
+    if (!el) return;
+
+    el.textContent = this._status || "";
+    el.style.display = this._status ? "block" : "none";
+  },
+
+  _removePostSaveNotice() {
+    const modal = this._refs?.modal;
+    if (!modal) return;
+    const existing = modal.querySelector(".haPostSaveNotice");
+    if (existing) existing.remove();
+  },
+
+  _showPostSaveNotice() {
+    const modal = this._refs?.modal;
+    if (!modal) {
+      this.close();
+      return;
+    }
+
+    this._removePostSaveNotice();
+
+    const box = document.createElement("div");
+    box.className = "haPostSaveNotice";
+    box.style.marginTop = "14px";
+    box.style.padding = "14px";
+    box.style.borderRadius = "12px";
+    box.style.border = "1px solid rgba(255,255,255,0.14)";
+    box.style.background = "rgba(255,255,255,0.06)";
+
+    box.innerHTML = `
+      <div style="font-size:24px; line-height:1.25; opacity:0.96;">
+        Saved.<br/>
+        It will show on the mirror after the next calendar refresh, about 10 minutes.
+      </div>
+      <div style="margin-top:14px; display:flex; justify-content:flex-end;">
+        <button class="haBtn save haPostSaveOk" type="button" style="font-size:18px; padding:12px 20px;">
+          OK
+        </button>
+      </div>
+    `;
+
+    modal.appendChild(box);
+
+    const cleanup = () => {
+      this._removePostSaveNotice();
+      clearTimeout(this._postSaveTimer);
+      this._postSaveTimer = null;
+      this.close();
+    };
+
+    const ok = box.querySelector(".haPostSaveOk");
+    if (ok) ok.addEventListener("click", cleanup);
+
+    clearTimeout(this._postSaveTimer);
+    this._postSaveTimer = setTimeout(cleanup, 5000);
   },
 
   _submit() {
@@ -724,13 +829,14 @@ Module.register("MMM-HA-AddEvent", {
         alert("Start Date and End Date are required.");
         return;
       }
-
       if (e < s) {
         this._setSaving(false, "");
         alert("End Date must be on or after Start Date.");
         return;
       }
 
+      // HA calendar.create_event expects end_date to be exclusive.
+      // UI is inclusive, so we add 1 day automatically.
       const endExclusive = this._addDaysDateOnly(this._current.endDate, 1);
 
       this.sendSocketNotification("CREATE_EVENT", {
@@ -740,10 +846,10 @@ Module.register("MMM-HA-AddEvent", {
         start_date: this._current.startDate,
         end_date: endExclusive
       });
-
       return;
     }
 
+    // Timed event: always keep end valid and defaulted to +60 minutes
     this._ensureTimedEndValid();
 
     const start = new Date(this._current.startDT);
@@ -769,7 +875,7 @@ Module.register("MMM-HA-AddEvent", {
       const step = payload?.step || "";
       if (step === "ha") this._setSaving(true, "Saving to calendar…");
       else if (step === "sync") this._setSaving(true, "Syncing iCloud…");
-      else if (step === "fetch") this._setSaving(true, "Refreshing Mirror…");
+      else if (step === "fetch") this._setSaving(true, "Refreshing mirror…");
       else if (step === "done") this._setSaving(true, "Saved.");
       else if (step) this._setSaving(true, String(step));
       return;
@@ -779,92 +885,12 @@ Module.register("MMM-HA-AddEvent", {
 
     if (payload && payload.ok) {
       this._setSaving(false, "");
+      this._setKeyboardVisible(false);
       this._showPostSaveNotice();
-      return;
+    } else {
+      const msg = payload && payload.error ? payload.error : "unknown error";
+      this._setSaving(false, `Failed: ${msg}`);
+      this._setKeyboardVisible(true);
     }
-
-    const msg = payload && payload.error ? payload.error : "unknown error";
-    this._setSaving(false, "");
-    alert(`Failed: ${msg}`);
-  },
-
-  _setSaving(isSaving, statusText) {
-    this._isSaving = !!isSaving;
-    this._status = statusText || "";
-    this._renderStatus();
-    this._setFormDisabled(this._isSaving);
-  },
-
-  _renderStatus() {
-    const el = this._refs?.statusEl;
-    if (!el) return;
-
-    el.textContent = this._status;
-    el.style.display = this._status ? "block" : "none";
-  },
-
-  _setFormDisabled(disabled) {
-    const r = this._refs;
-    if (!r) return;
-
-    const els = [
-      r.summary, r.desc, r.allDayToggle,
-      r.startDT, r.endDT, r.startDate, r.endDate
-    ].filter(Boolean);
-
-    els.forEach((el) => {
-      try { el.disabled = !!disabled; } catch (e) {}
-    });
-
-    if (r.saveBtn) r.saveBtn.disabled = !!disabled;
-    if (r.cancelBtn) r.cancelBtn.disabled = !!disabled;
-
-    // Hide keyboard while saving so the user sees progress clearly
-    if (r.kbWrap) r.kbWrap.style.display = disabled ? "none" : "block";
-  },
-
-  _removePostSaveNotice() {
-    const modal = this._refs?.modal;
-    if (!modal) return;
-    const existing = modal.querySelector(".haPostSaveNotice");
-    if (existing) existing.remove();
-  },
-
-  _showPostSaveNotice() {
-    const modal = this._refs?.modal;
-    if (!modal) {
-      this.close();
-      return;
-    }
-
-    this._removePostSaveNotice();
-
-    const box = document.createElement("div");
-    box.className = "haPostSaveNotice";
-
-    box.innerHTML = `
-      <div style="font-size:26px; line-height:1.25; margin-top:10px;">
-        Saved.<br>
-        Event will show on the mirror after the next calendar refresh (about 10 minutes).
-      </div>
-      <div style="margin-top:14px;">
-        <button class="haBtn save haPostSaveOk" type="button">OK</button>
-      </div>
-    `;
-
-    modal.appendChild(box);
-
-    const cleanup = () => {
-      this._removePostSaveNotice();
-      clearTimeout(this._postSaveTimer);
-      this._postSaveTimer = null;
-      this.close();
-    };
-
-    const ok = box.querySelector(".haPostSaveOk");
-    if (ok) ok.addEventListener("click", cleanup);
-
-    clearTimeout(this._postSaveTimer);
-    this._postSaveTimer = setTimeout(cleanup, 5000);
   }
 });
