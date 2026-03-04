@@ -17,7 +17,6 @@ Module.register("MMM-HA-AddEvent", {
     this._capsLock = false;
     this._shiftOneShot = false;
     this._pendingOneShotReset = false;
-
     this._autoCapNext = true;
 
     this._endManuallyEdited = false;
@@ -34,6 +33,9 @@ Module.register("MMM-HA-AddEvent", {
       this._portal.id = "HA_EVENTADD_PORTAL";
       document.body.appendChild(this._portal);
     }
+
+    // IMPORTANT: prevent the (hidden) portal from blocking clicks on the MM page
+    this._portal.style.pointerEvents = "none";
 
     this._refs = {};
 
@@ -83,24 +85,11 @@ Module.register("MMM-HA-AddEvent", {
 
     btn.append(left, right);
 
-    // FIX: make the button reliably work on touch/Electron every time
-    const openHandler = (e) => {
-      try {
-        if (e) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      } catch (err) {}
-      this.open();
-    };
-
-    btn.addEventListener("pointerdown", openHandler);
-    btn.addEventListener("click", openHandler);
-
+    // IMPORTANT: keep this simple and reliable
+    btn.addEventListener("click", () => this.open());
     btn.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        e.stopPropagation();
         this.open();
       }
     });
@@ -111,12 +100,6 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   open() {
-    // Undo any defensive hard-close styles (if they were applied)
-    if (this._portal) {
-      this._portal.style.display = "";
-      this._portal.style.pointerEvents = "";
-    }
-
     this._current = this._defaultState();
     this._visible = true;
     this._activeField = "ha_summary";
@@ -150,41 +133,22 @@ Module.register("MMM-HA-AddEvent", {
 
   close() {
     this._visible = false;
-
-    // Always reset saving state so overlay doesn’t trap you
     this._isSaving = false;
 
-    // Best-effort cleanup, never let an exception prevent hiding the portal
-    try {
-      this._resetBottomBox();
-      clearTimeout(this._postSaveTimer);
-      this._postSaveTimer = null;
-    } catch (e) {}
-
-    // HARD close: remove open class and temporarily slam pointer-events/display,
-    // this prevents the invisible portal from blocking taps on the main screen.
-    try {
-      if (this._portal) {
-        this._portal.classList.remove("is-open");
-        this._portal.style.pointerEvents = "none";
-        this._portal.style.display = "none";
-      }
-    } catch (e) {}
-
-    // Let normal CSS control it again (so open() works normally)
-    try {
-      if (this._portal) {
-        this._portal.style.display = "";
-        this._portal.style.pointerEvents = "";
-      }
-    } catch (e) {}
+    this._resetBottomBox();
+    clearTimeout(this._postSaveTimer);
+    this._postSaveTimer = null;
 
     this._applyVisibility();
   },
 
   _applyVisibility() {
     if (!this._portal) return;
+
     this._portal.classList.toggle("is-open", !!this._visible);
+
+    // THE FIX: portal must not intercept touches when closed
+    this._portal.style.pointerEvents = this._visible ? "auto" : "none";
   },
 
   _defaultState() {
@@ -381,7 +345,6 @@ Module.register("MMM-HA-AddEvent", {
     startDT.id = "ha_start_dt";
     startDT.classList.add("haDtCompact");
 
-    // mousedown = single tap in Electron
     startDT.addEventListener("mousedown", (e) => {
       e.stopPropagation();
       if (this._isSaving) return;
@@ -494,7 +457,6 @@ Module.register("MMM-HA-AddEvent", {
     kbWrap.appendChild(kb);
 
     // Bottom box under keyboard (reuse same element for progress + final)
-    // IMPORTANT: use the SAME classes as before so your orange glow CSS applies
     const bottomBox = document.createElement("div");
     bottomBox.className = "haPostSaveNotice";
     bottomBox.style.display = "none";
@@ -600,7 +562,6 @@ Module.register("MMM-HA-AddEvent", {
   _showPicker(inputEl) {
     if (!inputEl) return;
 
-    // Focus first, then try showPicker, then click fallback
     try { inputEl.focus({ preventScroll: true }); } catch (e) {}
 
     setTimeout(() => {
@@ -782,8 +743,6 @@ Module.register("MMM-HA-AddEvent", {
 
     this._refs.timedWrap.style.display = this._current.allDay ? "none" : "block";
     this._refs.alldayWrap.style.display = this._current.allDay ? "block" : "none";
-
-    // IMPORTANT: do not auto-edit endDT here, prevents flashing
   },
 
   _setFormDisabled(disabled) {
@@ -913,7 +872,6 @@ Module.register("MMM-HA-AddEvent", {
     if (notification === "PROGRESS") {
       const step = String(payload?.step || "");
 
-      // We are NOT forcing a calendar refresh anymore, so no "fetch" messaging here.
       if (step === "ha") this._showProgress("Saving to calendar…");
       else if (step === "sync") this._showProgress("Syncing iCloud…");
       else if (step === "wait_ics") this._showProgress("Waiting for calendar file update…");
