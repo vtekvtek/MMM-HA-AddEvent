@@ -27,15 +27,18 @@ async function waitForMtimeBump(filePath, beforeMs, timeoutMs = 20000) {
 
 function execWithTimeout(cmd, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const child = exec(cmd, { timeout: timeoutMs, windowsHide: true }, (err, stdout, stderr) => {
-      if (err) {
-        const msg = (stderr || stdout || err.message || String(err)).trim();
-        reject(new Error(msg));
-        return;
+    const child = exec(
+      cmd,
+      { timeout: timeoutMs, windowsHide: true },
+      (err, stdout, stderr) => {
+        if (err) {
+          const msg = (stderr || stdout || err.message || String(err)).trim();
+          reject(new Error(msg));
+          return;
+        }
+        resolve({ stdout, stderr });
       }
-      resolve({ stdout, stderr });
-    });
-    // just in case, ensure kill on timeout
+    );
     child.on("error", (e) => reject(e));
   });
 }
@@ -65,11 +68,7 @@ module.exports = NodeHelper.create({
     const vdirCmd = String(this.cfg.vdirsyncerCmd || "").trim();
     const vdirTimeout = Number(this.cfg.vdirsyncerTimeoutMs || 120000);
 
-    // IMPORTANT: local path to the .ics file vdirsyncer writes
-    // Example: "/home/magicmirror/MagicMirror/modules/Family.ics"
     const icsPath = String(this.cfg.calendarIcsPath || "").trim();
-
-    // URL the calendar module uses
     const icsUrl = String(this.cfg.calendarIcsUrl || "").trim();
 
     if (!haUrl) {
@@ -108,7 +107,7 @@ module.exports = NodeHelper.create({
 
     if (payload?.allDay) {
       const start_date = String(payload?.start_date ?? "");
-      const end_date = String(payload?.end_date ?? ""); // exclusive
+      const end_date = String(payload?.end_date ?? "");
       if (!start_date || !end_date) {
         this.sendSocketNotification("RESULT", { ok: false, error: "Missing all-day dates" });
         return;
@@ -127,6 +126,7 @@ module.exports = NodeHelper.create({
     }
 
     try {
+      // Step 1: Home Assistant create_event
       this.sendSocketNotification("PROGRESS", { step: "ha" });
 
       const res = await fetch(url, {
@@ -147,19 +147,21 @@ module.exports = NodeHelper.create({
         return;
       }
 
-      // Snapshot mtime BEFORE sync
+      // Step 2: vdirsyncer
       const beforeMtime = statMtimeMs(icsPath);
 
       this.sendSocketNotification("PROGRESS", { step: "sync" });
       await execWithTimeout(vdirCmd, vdirTimeout);
 
-      // Wait for the file to actually change on disk
-      this.sendSocketNotification("PROGRESS", { step: "wait_ics" });
+      // Step 3: wait for local file to update (friendly message)
+      this.sendSocketNotification("PROGRESS", { step: "Waiting for calendar file to update…" });
       const bumped = await waitForMtimeBump(icsPath, beforeMtime, 20000);
 
+      // Step 4: tell frontend it can fetch (even if mtime didn't bump)
+      this.sendSocketNotification("PROGRESS", { step: "fetch" });
+
       if (!bumped) {
-        // If vdirsyncer succeeded but file mtime did not change, we still proceed,
-        // but tell you why it might be one behind (server cache or atomic write location mismatch)
+        this.sendSocketNotification("PROGRESS", { step: "done" });
         this.sendSocketNotification("RESULT", {
           ok: true,
           fetchUrl: icsUrl,
@@ -168,9 +170,7 @@ module.exports = NodeHelper.create({
         return;
       }
 
-      this.sendSocketNotification("PROGRESS", { step: "fetch" });
-
-      // Done: only now tell the frontend to fetch
+      this.sendSocketNotification("PROGRESS", { step: "done" });
       this.sendSocketNotification("RESULT", { ok: true, fetchUrl: icsUrl });
     } catch (e) {
       this.sendSocketNotification("RESULT", { ok: false, error: e?.message || String(e) });
