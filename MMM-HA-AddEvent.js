@@ -9,51 +9,39 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   start() {
+    this._visible = false;
+    this._activeField = "ha_summary";
 
-  this._visible = false
-  this._activeField = "ha_summary"
+    this._keyboard = null;
 
-  this._keyboard = null
+    // Keyboard state
+    this._capsLock = false;
+    this._shiftOneShot = false;
+    this._pendingOneShotReset = false;
+    this._autoCapNext = true;
 
-  this._capsLock = false
-  this._shiftOneShot = false
-  this._pendingOneShotReset = false
-  this._autoCapNext = true
+    // Timed end tracking
+    this._endManuallyEdited = false;
 
-  this._endManuallyEdited = false
+    // Saving / UX
+    this._isSaving = false;
+    this._status = "";
+    this._postSaveTimer = null;
 
-  this._isSaving = false
-  this._status = ""
-  this._postSaveTimer = null
+    this._current = this._defaultState();
 
-  this._current = this._defaultState()
-
-  this._portal = document.getElementById("HA_EVENTADD_PORTAL")
-
-  if (!this._portal) {
-    this._portal = document.createElement("div")
-    this._portal.id = "HA_EVENTADD_PORTAL"
-    document.body.appendChild(this._portal)
-  }
-
-  this._refs = {}
-
-  this.sendSocketNotification("CONFIG", this.config)
-
-  // BUILD UI FIRST
-  this._buildOnce()
-
-  // THEN APPLY STATE
-  this._applyVisibility()
-  this._syncUIFromState()
-  this._renderStatus()
-  this._setFormDisabled(false)
- }
+    this._portal = document.getElementById("HA_EVENTADD_PORTAL");
+    if (!this._portal) {
+      this._portal = document.createElement("div");
+      this._portal.id = "HA_EVENTADD_PORTAL";
+      document.body.appendChild(this._portal);
+    }
 
     this._refs = {};
 
     this.sendSocketNotification("CONFIG", this.config);
 
+    // Build UI first, then apply state
     this._buildOnce();
     this._applyVisibility();
     this._syncUIFromState();
@@ -155,6 +143,7 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   _applyVisibility() {
+    if (!this._portal) return;
     this._portal.classList.toggle("is-open", !!this._visible);
   },
 
@@ -250,17 +239,13 @@ Module.register("MMM-HA-AddEvent", {
 
     const overlay = document.createElement("div");
     overlay.className = "haOverlay";
-
     overlay.addEventListener("pointerdown", (e) => {
       if (e.target === overlay) this.close();
     });
 
     const modal = document.createElement("div");
     modal.className = "haModal";
-
-    modal.addEventListener("pointerdown", (e) => {
-      e.stopPropagation();
-    });
+    modal.addEventListener("pointerdown", (e) => e.stopPropagation());
 
     const title = document.createElement("div");
     title.className = "haTitle";
@@ -268,11 +253,13 @@ Module.register("MMM-HA-AddEvent", {
 
     const form = document.createElement("div");
 
+    // Status
     const statusEl = document.createElement("div");
     statusEl.className = "haStatus";
     statusEl.style.display = "none";
     form.appendChild(statusEl);
 
+    // Title
     const summaryRow = this._rowBase("Title", "ha_summary");
     const summary = document.createElement("input");
     summary.type = "text";
@@ -289,6 +276,7 @@ Module.register("MMM-HA-AddEvent", {
     });
     summaryRow.appendChild(summary);
 
+    // All day
     const allDayRow = document.createElement("div");
     allDayRow.className = "haRowInline";
 
@@ -332,6 +320,7 @@ Module.register("MMM-HA-AddEvent", {
 
     allDayRow.append(allDayLabel, allDayToggle);
 
+    // Timed wrap
     const timedWrap = document.createElement("div");
     timedWrap.className = "haTimedWrap";
 
@@ -364,6 +353,7 @@ Module.register("MMM-HA-AddEvent", {
 
     timedWrap.append(startDTRow, endDTRow);
 
+    // All-day wrap
     const alldayWrap = document.createElement("div");
     alldayWrap.className = "haAllDayWrap";
 
@@ -409,6 +399,7 @@ Module.register("MMM-HA-AddEvent", {
 
     alldayWrap.append(startDateRow, endDateRow, hint);
 
+    // Notes
     const descRow = this._rowBase("Notes", "ha_desc");
     const desc = document.createElement("textarea");
     desc.id = "ha_desc";
@@ -424,12 +415,14 @@ Module.register("MMM-HA-AddEvent", {
     });
     descRow.appendChild(desc);
 
+    // Keyboard
     const kbWrap = document.createElement("div");
     kbWrap.className = "haKbWrap";
     const kb = document.createElement("div");
     kb.className = "simple-keyboard";
     kbWrap.appendChild(kb);
 
+    // Buttons
     const btnBar = document.createElement("div");
     btnBar.className = "haButtons";
 
@@ -484,13 +477,25 @@ Module.register("MMM-HA-AddEvent", {
     }, 0);
   },
 
+  _rowBase(label, id) {
+    const row = document.createElement("div");
+    row.className = "haRow";
+
+    const l = document.createElement("label");
+    l.textContent = label;
+    l.htmlFor = id;
+
+    row.appendChild(l);
+    return row;
+  },
+
   _prepPickerInput(inputEl) {
     if (!inputEl) return;
 
-    // Prefer light system UI if respected
+    // Try to request light picker UI where supported
     try { inputEl.style.colorScheme = "light"; } catch (e) {}
 
-    // Single tap: open picker only on pointerdown, not focus.
+    // Single tap open
     inputEl.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       if (this._isSaving) return;
@@ -799,6 +804,7 @@ Module.register("MMM-HA-AddEvent", {
         return;
       }
 
+      // HA expects end_date exclusive
       const endExclusive = this._addDaysDateOnly(this._current.endDate, 1);
 
       this.sendSocketNotification("CREATE_EVENT", {
