@@ -136,12 +136,13 @@
 
 .haTimedWrap {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
+  align-items: flex-start;
 }
 
 .haTimedWrap .haRow {
-  flex: 0 0 260px;
+  flex: 0 0 220px;
 }
 
 
@@ -314,4 +315,10 @@
   border-color: rgba(255, 170, 90, 0.55) !important;
   background: rgba(255, 160, 70, 0.18) !important;
   color: rgba(255,255,255,0.98) !important;
+}
+
+/* Try to force native date/time pickers into LIGHT mode */
+#HA_EVENTADD_PORTAL input[type="date"],
+#HA_EVENTADD_PORTAL input[type="datetime-local"] {
+  color-scheme: light;
 }
