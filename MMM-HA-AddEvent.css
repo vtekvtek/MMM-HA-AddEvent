@@ -209,6 +209,20 @@
   margin-bottom: 8px;
 }
 
+/* Make date/time inputs more compact */
+.haRow input.haDtCompact {
+  max-width: 360px;
+  width: 360px;
+}
+
+/* On small screens, let it shrink */
+@media (max-width: 520px) {
+  .haRow input.haDtCompact {
+    max-width: 100%;
+    width: 100%;
+  }
+}
+
 
 /* =========================
    BUTTONS
