@@ -4,7 +4,7 @@ Module.register("MMM-HA-AddEvent", {
   defaults: {
     buttonText: "Add Event",
     calendarTitle: "Add Family Event",
-    defaultDurationMinutes: 60, // default 1 hour now
+    defaultDurationMinutes: 60, // default 1 hour
     minuteRounding: 5
   },
 
@@ -24,6 +24,9 @@ Module.register("MMM-HA-AddEvent", {
 
     // Track whether user manually edited end time
     this._endManuallyEdited = false;
+
+    // post-save timer
+    this._postSaveTimer = null;
 
     this._current = this._defaultState();
 
@@ -112,6 +115,11 @@ Module.register("MMM-HA-AddEvent", {
     this._applyVisibility();
     this._syncUIFromState();
 
+    // clear any post-save notice/timers
+    this._removePostSaveNotice();
+    clearTimeout(this._postSaveTimer);
+    this._postSaveTimer = null;
+
     setTimeout(() => {
       const el = this._refs.summary;
       if (el) el.focus({ preventScroll: true });
@@ -124,6 +132,10 @@ Module.register("MMM-HA-AddEvent", {
   close() {
     this._visible = false;
     this._applyVisibility();
+
+    this._removePostSaveNotice();
+    clearTimeout(this._postSaveTimer);
+    this._postSaveTimer = null;
   },
 
   _applyVisibility() {
@@ -205,7 +217,6 @@ Module.register("MMM-HA-AddEvent", {
     const e = this._parseDateTimeLocal(this._current.endDT);
     if (!s) return;
 
-    // If no end, or invalid, or end <= start, set end to start + 60
     if (!e || e <= s) {
       this._current.endDT = this._addMinutesDateTimeLocal(this._current.startDT, 60);
       if (this._refs?.endDT) this._refs.endDT.value = this._current.endDT;
@@ -213,7 +224,6 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   _autoSetTimedEndFromStart() {
-    // Always set end = start + 60 unless user manually edited end
     if (this._endManuallyEdited) {
       this._ensureTimedEndValid();
       return;
@@ -279,12 +289,12 @@ Module.register("MMM-HA-AddEvent", {
       this._current.allDay = !!allDayToggle.checked;
 
       if (this._current.allDay) {
-        // Default to a 1-day all-day event (inclusive endDate same as startDate)
+        // Default all-day: one-day (endDate inclusive same as startDate)
         const base = this._current.startDT ? String(this._current.startDT).split("T")[0] : this._toDateOnly(new Date());
         this._current.startDate = base;
         this._current.endDate = base;
       } else {
-        // Reset timed, and re-auto end = start + 60
+        // Reset timed, auto end = start + 60
         const fresh = this._defaultState();
         this._current.startDT = fresh.startDT;
         this._current.endDT = fresh.endDT;
@@ -311,8 +321,8 @@ Module.register("MMM-HA-AddEvent", {
     startDT.type = "datetime-local";
     startDT.id = "ha_start_dt";
 
-    // Try hard to open picker in Electron
-    startDT.addEventListener("pointerdown", (e) => {
+    // Use click instead of pointerdown to reduce "double-tap" issues
+    startDT.addEventListener("click", (e) => {
       e.stopPropagation();
       this._showPicker(startDT);
     });
@@ -329,7 +339,7 @@ Module.register("MMM-HA-AddEvent", {
     endDT.type = "datetime-local";
     endDT.id = "ha_end_dt";
 
-    endDT.addEventListener("pointerdown", (e) => {
+    endDT.addEventListener("click", (e) => {
       e.stopPropagation();
       this._showPicker(endDT);
     });
@@ -352,15 +362,16 @@ Module.register("MMM-HA-AddEvent", {
     const startDate = document.createElement("input");
     startDate.type = "date";
     startDate.id = "ha_start_date";
-    startDate.addEventListener("pointerdown", (e) => {
+
+    startDate.addEventListener("click", (e) => {
       e.stopPropagation();
       this._showPicker(startDate);
     });
     startDate.addEventListener("focus", () => this._showPicker(startDate));
+
     startDate.addEventListener("change", () => {
       this._current.startDate = startDate.value;
 
-      // Keep endDate at least startDate, but do not force multi-day
       const s = this._parseDateOnly(this._current.startDate);
       const ed = this._parseDateOnly(this._current.endDate);
       if (s && (!ed || ed < s)) {
@@ -374,11 +385,13 @@ Module.register("MMM-HA-AddEvent", {
     const endDate = document.createElement("input");
     endDate.type = "date";
     endDate.id = "ha_end_date";
-    endDate.addEventListener("pointerdown", (e) => {
+
+    endDate.addEventListener("click", (e) => {
       e.stopPropagation();
       this._showPicker(endDate);
     });
     endDate.addEventListener("focus", () => this._showPicker(endDate));
+
     endDate.addEventListener("change", () => {
       this._current.endDate = endDate.value;
       const s = this._parseDateOnly(this._current.startDate);
@@ -480,18 +493,22 @@ Module.register("MMM-HA-AddEvent", {
   _showPicker(inputEl) {
     if (!inputEl) return;
 
-    // In Electron, showPicker can be missing or blocked, so fallback hard
-    try {
-      if (typeof inputEl.showPicker === "function") {
-        inputEl.showPicker();
-        return;
-      }
-    } catch (e) {}
-
+    // Focus first
     try { inputEl.focus({ preventScroll: true }); } catch (e) {}
 
-    // Some Electron builds only open via click
-    try { inputEl.click(); } catch (e) {}
+    // Next frame, try showPicker, then fallback click
+    requestAnimationFrame(() => {
+      try {
+        if (typeof inputEl.showPicker === "function") {
+          inputEl.showPicker();
+          return;
+        }
+      } catch (e) {}
+
+      setTimeout(() => {
+        try { inputEl.click(); } catch (e) {}
+      }, 40);
+    });
   },
 
   _setActiveField(id) {
@@ -658,7 +675,6 @@ Module.register("MMM-HA-AddEvent", {
     this._refs.timedWrap.style.display = this._current.allDay ? "none" : "block";
     this._refs.alldayWrap.style.display = this._current.allDay ? "block" : "none";
 
-    // Ensure timed end is always valid and defaulted
     if (!this._current.allDay) {
       this._autoSetTimedEndFromStart();
     }
@@ -686,7 +702,7 @@ Module.register("MMM-HA-AddEvent", {
         return;
       }
 
-      // end_date must be exclusive for HA create_event
+      // HA expects end_date exclusive
       const endExclusive = this._addDaysDateOnly(this._current.endDate, 1);
 
       this.sendSocketNotification("CREATE_EVENT", {
@@ -699,7 +715,6 @@ Module.register("MMM-HA-AddEvent", {
       return;
     }
 
-    // Ensure end is auto-filled and valid before submit
     this._ensureTimedEndValid();
 
     const start = new Date(this._current.startDT);
@@ -719,7 +734,7 @@ Module.register("MMM-HA-AddEvent", {
     });
   },
 
-    socketNotificationReceived(notification, payload) {
+  socketNotificationReceived(notification, payload) {
     if (notification !== "RESULT") return;
 
     if (payload && payload.ok) {
@@ -731,6 +746,13 @@ Module.register("MMM-HA-AddEvent", {
     alert(`Failed: ${msg}`);
   },
 
+  _removePostSaveNotice() {
+    const modal = this._refs?.modal;
+    if (!modal) return;
+    const existing = modal.querySelector(".haPostSaveNotice");
+    if (existing) existing.remove();
+  },
+
   _showPostSaveNotice() {
     const modal = this._refs?.modal;
     if (!modal) {
@@ -738,9 +760,7 @@ Module.register("MMM-HA-AddEvent", {
       return;
     }
 
-    // remove any existing notice
-    const existing = modal.querySelector(".haPostSaveNotice");
-    if (existing) existing.remove();
+    this._removePostSaveNotice();
 
     const box = document.createElement("div");
     box.className = "haPostSaveNotice";
@@ -760,6 +780,6 @@ Module.register("MMM-HA-AddEvent", {
     if (ok) ok.addEventListener("click", () => this.close());
 
     clearTimeout(this._postSaveTimer);
-    this._postSaveTimer = setTimeout(() => this.close(), 3000);
+    this._postSaveTimer = setTimeout(() => this.close(), 8000);
   }
 });
