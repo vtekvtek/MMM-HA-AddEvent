@@ -719,47 +719,47 @@ Module.register("MMM-HA-AddEvent", {
     });
   },
 
-  socketNotificationReceived(notification, payload) {
+    socketNotificationReceived(notification, payload) {
     if (notification !== "RESULT") return;
 
     if (payload && payload.ok) {
       this._showPostSaveNotice();
       return;
-  }
-  }
+    }
+
+    const msg = payload && payload.error ? payload.error : "unknown error";
+    alert(`Failed: ${msg}`);
+  },
 
   _showPostSaveNotice() {
-  const overlay = this._refs?.overlay;
-  const modal = this._refs?.modal;
-  if (!overlay || !modal) {
-    this.close();
-    return;
+    const modal = this._refs?.modal;
+    if (!modal) {
+      this.close();
+      return;
+    }
+
+    // remove any existing notice
+    const existing = modal.querySelector(".haPostSaveNotice");
+    if (existing) existing.remove();
+
+    const box = document.createElement("div");
+    box.className = "haPostSaveNotice";
+    box.innerHTML = `
+      <div class="haPostSaveText">
+        Saved.<br/>
+        Event will show on the mirror after the next calendar refresh (about 10 minutes).
+      </div>
+      <div class="haPostSaveBtns">
+        <button class="haBtn save haPostSaveOk" type="button">OK</button>
+      </div>
+    `;
+
+    modal.appendChild(box);
+
+    const ok = box.querySelector(".haPostSaveOk");
+    if (ok) ok.addEventListener("click", () => this.close());
+
+    clearTimeout(this._postSaveTimer);
+    this._postSaveTimer = setTimeout(() => this.close(), 3000);
   }
-
-  // remove any existing notice
-  const existing = modal.querySelector(".haPostSaveNotice");
-  if (existing) existing.remove();
-
-  const box = document.createElement("div");
-  box.className = "haPostSaveNotice";
-  box.innerHTML = `
-    <div class="haPostSaveText">
-      Saved.<br/>
-      Event will show on the mirror after the next calendar refresh (about 10 minutes).
-    </div>
-    <div class="haPostSaveBtns">
-      <button class="haBtn save haPostSaveOk" type="button">OK</button>
-    </div>
-  `;
-
-  // put it at the bottom of modal
-  modal.appendChild(box);
-
-  const ok = box.querySelector(".haPostSaveOk");
-  if (ok) ok.addEventListener("click", () => this.close());
-
-  // auto-close fallback
-  clearTimeout(this._postSaveTimer);
-  this._postSaveTimer = setTimeout(() => this.close(), 3000);
-}
 });
