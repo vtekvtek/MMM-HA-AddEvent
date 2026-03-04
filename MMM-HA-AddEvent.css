@@ -362,3 +362,40 @@
   50% { opacity: 1; }
   100% { opacity: 0.25; }
 }
+
+/* Notification / progress box */
+
+.haPostSaveNotice {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 110px; /* sits above keyboard */
+
+  padding: 18px 20px;
+
+  background: rgba(20,20,20,0.95);
+  border-radius: 12px;
+
+  border: 1px solid rgba(255,165,0,0.6);
+
+  box-shadow:
+    0 0 12px rgba(255,165,0,0.55),
+    0 0 30px rgba(255,165,0,0.25),
+    inset 0 0 6px rgba(255,165,0,0.35);
+
+  color: #fff;
+  text-align: center;
+
+  z-index: 30;
+}
+
+/* text inside */
+.haPostSaveText {
+  font-size: 22px;
+  line-height: 1.35;
+}
+
+/* buttons */
+.haPostSaveBtns {
+  margin-top: 14px;
+}
