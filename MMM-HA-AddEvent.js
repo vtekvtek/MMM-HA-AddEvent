@@ -723,11 +723,9 @@ Module.register("MMM-HA-AddEvent", {
     if (notification !== "RESULT") return;
 
     if (payload && payload.ok) {
-      this.close();
-    } else {
-      const msg = payload && payload.error ? payload.error : "unknown error";
-      alert(`Failed: ${msg}`);
-    }
+      this._showPostSaveNotice();
+      return;
+  }
   }
 
   _showPostSaveNotice() {
