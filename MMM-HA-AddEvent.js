@@ -34,13 +34,14 @@ Module.register("MMM-HA-AddEvent", {
       document.body.appendChild(this._portal);
     }
 
-    // IMPORTANT: prevent the (hidden) portal from blocking clicks on the MM page
-    this._portal.style.pointerEvents = "none";
+    // IMPORTANT: do NOT set pointerEvents here, it can “stick” and break clicks later
 
     this._refs = {};
 
     this.sendSocketNotification("CONFIG", this.config);
     this._buildOnce();
+
+    // Force initial closed state
     this._applyVisibility();
     this._syncUIFromState();
   },
@@ -85,7 +86,7 @@ Module.register("MMM-HA-AddEvent", {
 
     btn.append(left, right);
 
-    // IMPORTANT: keep this simple and reliable
+    // Keep it simple and reliable
     btn.addEventListener("click", () => this.open());
     btn.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -145,10 +146,12 @@ Module.register("MMM-HA-AddEvent", {
   _applyVisibility() {
     if (!this._portal) return;
 
-    this._portal.classList.toggle("is-open", !!this._visible);
+    const open = !!this._visible;
 
-    // THE FIX: portal must not intercept touches when closed
-    this._portal.style.pointerEvents = this._visible ? "auto" : "none";
+    // keep class for CSS, but HARD enforce display + pointer events every time
+    this._portal.classList.toggle("is-open", open);
+    this._portal.style.display = open ? "block" : "none";
+    this._portal.style.pointerEvents = open ? "auto" : "none";
   },
 
   _defaultState() {
@@ -235,7 +238,6 @@ Module.register("MMM-HA-AddEvent", {
     const v = String(newVal || "");
     if (!v) return;
 
-    // Prevent pointless rewrites to avoid flashing
     if (this._current.endDT === v) return;
 
     this._current.endDT = v;
