@@ -23,9 +23,8 @@ Module.register("MMM-HA-AddEvent", {
     this._endManuallyEdited = false;
     this._postSaveTimer = null;
 
-    // Progress state
+    // Saving/progress state
     this._isSaving = false;
-    this._statusText = "";
 
     this._current = this._defaultState();
 
@@ -42,8 +41,6 @@ Module.register("MMM-HA-AddEvent", {
     this._buildOnce();
     this._applyVisibility();
     this._syncUIFromState();
-    this._setStatus("");
-    this._setFormDisabled(false);
   },
 
   getStyles() {
@@ -112,15 +109,15 @@ Module.register("MMM-HA-AddEvent", {
     this._autoCapNext = true;
 
     this._isSaving = false;
-    this._setStatus("");
-    this._setFormDisabled(false);
 
     this._applyVisibility();
     this._syncUIFromState();
 
-    this._removePostSaveNotice();
+    this._resetBottomBox();
     clearTimeout(this._postSaveTimer);
     this._postSaveTimer = null;
+
+    this._setFormDisabled(false);
 
     setTimeout(() => {
       const el = this._refs.summary;
@@ -136,10 +133,8 @@ Module.register("MMM-HA-AddEvent", {
     this._applyVisibility();
 
     this._isSaving = false;
-    this._setStatus("");
-    this._setFormDisabled(false);
+    this._resetBottomBox();
 
-    this._removePostSaveNotice();
     clearTimeout(this._postSaveTimer);
     this._postSaveTimer = null;
   },
@@ -232,6 +227,7 @@ Module.register("MMM-HA-AddEvent", {
     const v = String(newVal || "");
     if (!v) return;
 
+    // Prevent pointless rewrites to avoid flashing
     if (this._current.endDT === v) return;
 
     this._current.endDT = v;
@@ -258,7 +254,7 @@ Module.register("MMM-HA-AddEvent", {
     overlay.className = "haOverlay";
 
     overlay.addEventListener("pointerdown", (e) => {
-      if (e.target === overlay) this.close();
+      if (e.target === overlay && !this._isSaving) this.close();
     });
 
     const modal = document.createElement("div");
@@ -274,19 +270,6 @@ Module.register("MMM-HA-AddEvent", {
 
     const form = document.createElement("div");
 
-    // Status row (progress)
-    const status = document.createElement("div");
-    status.className = "haSaveStatus";
-    status.style.display = "none";
-    status.style.marginBottom = "10px";
-    status.style.padding = "10px 12px";
-    status.style.borderRadius = "10px";
-    status.style.border = "1px solid rgba(255,255,255,0.14)";
-    status.style.background = "rgba(255,255,255,0.06)";
-    status.style.fontSize = "18px";
-    status.style.opacity = "0.92";
-    form.appendChild(status);
-
     // Title row
     const summaryRow = this._rowBase("Title", "ha_summary");
     const summary = document.createElement("input");
@@ -294,7 +277,7 @@ Module.register("MMM-HA-AddEvent", {
     summary.id = "ha_summary";
     summary.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
-      this._setActiveField("ha_summary");
+      if (!this._isSaving) this._setActiveField("ha_summary");
     });
     summary.addEventListener("input", () => {
       this._current.summary = summary.value;
@@ -354,8 +337,8 @@ Module.register("MMM-HA-AddEvent", {
     startDT.id = "ha_start_dt";
     startDT.classList.add("haDtCompact");
 
-    // Use pointerdown for single tap behavior in Electron
-    startDT.addEventListener("pointerdown", (e) => {
+    // mousedown = single tap in Electron
+    startDT.addEventListener("mousedown", (e) => {
       e.stopPropagation();
       if (this._isSaving) return;
       this._showPicker(startDT);
@@ -373,7 +356,7 @@ Module.register("MMM-HA-AddEvent", {
     endDT.id = "ha_end_dt";
     endDT.classList.add("haDtCompact");
 
-    endDT.addEventListener("pointerdown", (e) => {
+    endDT.addEventListener("mousedown", (e) => {
       e.stopPropagation();
       if (this._isSaving) return;
       this._showPicker(endDT);
@@ -398,7 +381,7 @@ Module.register("MMM-HA-AddEvent", {
     startDate.id = "ha_start_date";
     startDate.classList.add("haDtCompact");
 
-    startDate.addEventListener("pointerdown", (e) => {
+    startDate.addEventListener("mousedown", (e) => {
       e.stopPropagation();
       if (this._isSaving) return;
       this._showPicker(startDate);
@@ -422,7 +405,7 @@ Module.register("MMM-HA-AddEvent", {
     endDate.id = "ha_end_date";
     endDate.classList.add("haDtCompact");
 
-    endDate.addEventListener("pointerdown", (e) => {
+    endDate.addEventListener("mousedown", (e) => {
       e.stopPropagation();
       if (this._isSaving) return;
       this._showPicker(endDate);
@@ -451,7 +434,7 @@ Module.register("MMM-HA-AddEvent", {
     desc.id = "ha_desc";
     desc.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
-      this._setActiveField("ha_desc");
+      if (!this._isSaving) this._setActiveField("ha_desc");
     });
     desc.addEventListener("input", () => {
       this._current.description = desc.value;
@@ -465,6 +448,40 @@ Module.register("MMM-HA-AddEvent", {
     const kb = document.createElement("div");
     kb.className = "simple-keyboard";
     kbWrap.appendChild(kb);
+
+    // Bottom box under keyboard (progress + final message)
+    const bottomBox = document.createElement("div");
+    bottomBox.className = "haBottomBox";
+    bottomBox.style.marginTop = "12px";
+    bottomBox.style.padding = "14px";
+    bottomBox.style.borderRadius = "12px";
+    bottomBox.style.border = "1px solid rgba(255,255,255,0.14)";
+    bottomBox.style.background = "rgba(255,255,255,0.06)";
+    bottomBox.style.minHeight = "78px"; // keep footprint consistent
+    bottomBox.style.display = "none";
+
+    const bottomText = document.createElement("div");
+    bottomText.className = "haBottomText";
+    bottomText.style.fontSize = "22px";
+    bottomText.style.lineHeight = "1.25";
+    bottomText.style.opacity = "0.96";
+    bottomText.textContent = "";
+
+    const bottomBtns = document.createElement("div");
+    bottomBtns.className = "haBottomBtns";
+    bottomBtns.style.marginTop = "12px";
+    bottomBtns.style.display = "none";
+    bottomBtns.style.justifyContent = "flex-end";
+
+    const bottomOk = document.createElement("button");
+    bottomOk.className = "haBtn save haBottomOk";
+    bottomOk.type = "button";
+    bottomOk.textContent = "OK";
+    bottomOk.style.fontSize = "18px";
+    bottomOk.style.padding = "12px 20px";
+
+    bottomBtns.appendChild(bottomOk);
+    bottomBox.append(bottomText, bottomBtns);
 
     // Buttons
     const btnBar = document.createElement("div");
@@ -487,7 +504,16 @@ Module.register("MMM-HA-AddEvent", {
 
     btnBar.append(cancel, save);
 
-    form.append(summaryRow, allDayRow, timedWrap, alldayWrap, descRow, kbWrap, btnBar);
+    form.append(
+      summaryRow,
+      allDayRow,
+      timedWrap,
+      alldayWrap,
+      descRow,
+      kbWrap,
+      bottomBox,
+      btnBar
+    );
 
     modal.append(title, form);
     overlay.appendChild(modal);
@@ -497,6 +523,7 @@ Module.register("MMM-HA-AddEvent", {
     this._refs = {
       overlay,
       modal,
+      form,
       summary,
       desc,
       allDayToggle,
@@ -507,16 +534,22 @@ Module.register("MMM-HA-AddEvent", {
       startDate,
       endDate,
       kbEl: kb,
-      statusEl: status,
       saveBtn: save,
-      cancelBtn: cancel
+      cancelBtn: cancel,
+      bottomBox,
+      bottomText,
+      bottomBtns,
+      bottomOk
     };
+
+    bottomOk.addEventListener("click", () => this._finalCleanupAndClose());
 
     setTimeout(() => {
       this._initKeyboardIfNeeded();
       this._syncUIFromState();
       this._applyKeyboardCaseMode(true);
       this._syncKeyboardToActive();
+      this._resetBottomBox();
     }, 0);
   },
 
@@ -718,16 +751,7 @@ Module.register("MMM-HA-AddEvent", {
     this._refs.timedWrap.style.display = this._current.allDay ? "none" : "block";
     this._refs.alldayWrap.style.display = this._current.allDay ? "block" : "none";
 
-    // IMPORTANT: do not auto-edit endDT here, to avoid flashing
-  },
-
-  _setStatus(text) {
-    this._statusText = String(text || "");
-    const el = this._refs?.statusEl;
-    if (!el) return;
-
-    el.textContent = this._statusText;
-    el.style.display = this._statusText ? "block" : "none";
+    // IMPORTANT: do not auto-edit endDT here, prevents flashing
   },
 
   _setFormDisabled(disabled) {
@@ -745,11 +769,41 @@ Module.register("MMM-HA-AddEvent", {
 
     if (r.saveBtn) r.saveBtn.disabled = !!disabled;
     if (r.cancelBtn) r.cancelBtn.disabled = !!disabled;
+  },
 
-    // Keep overlay clickable to close only when not saving
-    if (r.overlay) {
-      r.overlay.style.pointerEvents = disabled ? "none" : "auto";
-    }
+  _resetBottomBox() {
+    const r = this._refs;
+    if (!r?.bottomBox) return;
+
+    r.bottomBox.style.display = "none";
+    r.bottomText.textContent = "";
+    r.bottomBtns.style.display = "none";
+  },
+
+  _showProgress(text) {
+    const r = this._refs;
+    if (!r?.bottomBox) return;
+
+    r.bottomBox.style.display = "block";
+    r.bottomText.textContent = String(text || "");
+    r.bottomBtns.style.display = "none";
+  },
+
+  _showFinalMessage() {
+    const r = this._refs;
+    if (!r?.bottomBox) return;
+
+    r.bottomBox.style.display = "block";
+    r.bottomText.textContent =
+      "Saved.\nEvent will show on the mirror after the next calendar refresh (about 10 minutes).";
+    r.bottomBtns.style.display = "flex";
+  },
+
+  _finalCleanupAndClose() {
+    this._resetBottomBox();
+    clearTimeout(this._postSaveTimer);
+    this._postSaveTimer = null;
+    this.close();
   },
 
   _submit() {
@@ -763,13 +817,12 @@ Module.register("MMM-HA-AddEvent", {
       return;
     }
 
-    this._removePostSaveNotice();
     clearTimeout(this._postSaveTimer);
     this._postSaveTimer = null;
 
     this._isSaving = true;
     this._setFormDisabled(true);
-    this._setStatus("Saving to calendar…");
+    this._showProgress("Saving to calendar…");
 
     if (this._current.allDay) {
       const s = this._parseDateOnly(this._current.startDate);
@@ -778,14 +831,14 @@ Module.register("MMM-HA-AddEvent", {
       if (!s || !e) {
         this._isSaving = false;
         this._setFormDisabled(false);
-        this._setStatus("");
+        this._resetBottomBox();
         alert("Start Date and End Date are required.");
         return;
       }
       if (e < s) {
         this._isSaving = false;
         this._setFormDisabled(false);
-        this._setStatus("");
+        this._resetBottomBox();
         alert("End Date must be on or after Start Date.");
         return;
       }
@@ -810,7 +863,7 @@ Module.register("MMM-HA-AddEvent", {
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
       this._isSaving = false;
       this._setFormDisabled(false);
-      this._setStatus("");
+      this._resetBottomBox();
       alert("End time must be after start time.");
       return;
     }
@@ -825,14 +878,13 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   socketNotificationReceived(notification, payload) {
-    // Optional: node_helper can emit PROGRESS steps
     if (notification === "PROGRESS") {
       const step = String(payload?.step || "");
-      if (step === "ha") this._setStatus("Saving to calendar…");
-      else if (step === "sync") this._setStatus("Syncing iCloud…");
-      else if (step === "fetch") this._setStatus("Refreshing mirror…");
-      else if (step === "done") this._setStatus("Saved.");
-      else if (step) this._setStatus(step);
+      if (step === "ha") this._showProgress("Saving to calendar…");
+      else if (step === "sync") this._showProgress("Syncing iCloud…");
+      else if (step === "fetch") this._showProgress("Refreshing mirror…");
+      else if (step === "done") this._showProgress("Saved.");
+      else if (step) this._showProgress(step);
       return;
     }
 
@@ -840,58 +892,18 @@ Module.register("MMM-HA-AddEvent", {
 
     this._isSaving = false;
     this._setFormDisabled(false);
-    this._setStatus("");
 
     if (payload && payload.ok) {
-      this._showPostSaveNotice();
+      this._showFinalMessage();
+
+      clearTimeout(this._postSaveTimer);
+      this._postSaveTimer = setTimeout(() => this._finalCleanupAndClose(), 8000);
       return;
     }
+
+    this._resetBottomBox();
 
     const msg = payload && payload.error ? payload.error : "unknown error";
     alert(`Failed: ${msg}`);
-  },
-
-  _removePostSaveNotice() {
-    const modal = this._refs?.modal;
-    if (!modal) return;
-    const existing = modal.querySelector(".haPostSaveNotice");
-    if (existing) existing.remove();
-  },
-
-  _showPostSaveNotice() {
-    const modal = this._refs?.modal;
-    if (!modal) {
-      this.close();
-      return;
-    }
-
-    this._removePostSaveNotice();
-
-    const box = document.createElement("div");
-    box.className = "haPostSaveNotice";
-    box.innerHTML = `
-      <div class="haPostSaveText" style="font-size:22px; line-height:1.3;">
-        Saved.<br/>
-        Event will show on the mirror after the next calendar refresh (about 10 minutes).
-      </div>
-      <div class="haPostSaveBtns" style="margin-top:10px;">
-        <button class="haBtn save haPostSaveOk" type="button">OK</button>
-      </div>
-    `;
-
-    modal.appendChild(box);
-
-    const cleanup = () => {
-      this._removePostSaveNotice();
-      clearTimeout(this._postSaveTimer);
-      this._postSaveTimer = null;
-      this.close();
-    };
-
-    const ok = box.querySelector(".haPostSaveOk");
-    if (ok) ok.addEventListener("click", cleanup);
-
-    clearTimeout(this._postSaveTimer);
-    this._postSaveTimer = setTimeout(cleanup, 8000);
   }
 });
