@@ -449,36 +449,24 @@ Module.register("MMM-HA-AddEvent", {
     kb.className = "simple-keyboard";
     kbWrap.appendChild(kb);
 
-    // Bottom box under keyboard (progress + final message)
+    // Bottom box under keyboard (reuse same element for progress + final)
+    // IMPORTANT: use the SAME classes as before so your orange glow CSS applies
     const bottomBox = document.createElement("div");
-    bottomBox.className = "haBottomBox";
-    bottomBox.style.marginTop = "12px";
-    bottomBox.style.padding = "14px";
-    bottomBox.style.borderRadius = "12px";
-    bottomBox.style.border = "1px solid rgba(255,255,255,0.14)";
-    bottomBox.style.background = "rgba(255,255,255,0.06)";
-    bottomBox.style.minHeight = "78px"; // keep footprint consistent
+    bottomBox.className = "haPostSaveNotice";
     bottomBox.style.display = "none";
 
     const bottomText = document.createElement("div");
-    bottomText.className = "haBottomText";
-    bottomText.style.fontSize = "22px";
-    bottomText.style.lineHeight = "1.25";
-    bottomText.style.opacity = "0.96";
+    bottomText.className = "haPostSaveText";
     bottomText.textContent = "";
 
     const bottomBtns = document.createElement("div");
-    bottomBtns.className = "haBottomBtns";
-    bottomBtns.style.marginTop = "12px";
+    bottomBtns.className = "haPostSaveBtns";
     bottomBtns.style.display = "none";
-    bottomBtns.style.justifyContent = "flex-end";
 
     const bottomOk = document.createElement("button");
-    bottomOk.className = "haBtn save haBottomOk";
+    bottomOk.className = "haBtn save haPostSaveOk";
     bottomOk.type = "button";
     bottomOk.textContent = "OK";
-    bottomOk.style.fontSize = "18px";
-    bottomOk.style.padding = "12px 20px";
 
     bottomBtns.appendChild(bottomOk);
     bottomBox.append(bottomText, bottomBtns);
@@ -880,11 +868,14 @@ Module.register("MMM-HA-AddEvent", {
   socketNotificationReceived(notification, payload) {
     if (notification === "PROGRESS") {
       const step = String(payload?.step || "");
+
+      // We are NOT forcing a calendar refresh anymore, so no "fetch" messaging here.
       if (step === "ha") this._showProgress("Saving to calendar…");
       else if (step === "sync") this._showProgress("Syncing iCloud…");
-      else if (step === "fetch") this._showProgress("Refreshing mirror…");
+      else if (step === "wait_ics") this._showProgress("Waiting for calendar file update…");
       else if (step === "done") this._showProgress("Saved.");
       else if (step) this._showProgress(step);
+
       return;
     }
 
