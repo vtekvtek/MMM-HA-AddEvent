@@ -49,12 +49,14 @@
   align-items: flex-end;
   gap: 4px;
 }
+
 .haAddHint { font-size: 11px; opacity: 0.65; }
 
 .haAddRow.isAccent {
   border-color: rgba(255, 170, 90, 0.55);
   background: rgba(255, 160, 70, 0.10);
 }
+
 
 /* =========================
    MODAL PORTAL
@@ -127,7 +129,26 @@
   margin-bottom: 5px;
 }
 
-/* All-day row */
+
+/* =========================
+   TIMED FIELD LAYOUT
+   ========================= */
+
+.haTimedWrap {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.haTimedWrap .haRow {
+  flex: 0 0 260px;
+}
+
+
+/* =========================
+   ALL DAY ROW
+   ========================= */
+
 .haRowInline {
   display: flex;
   align-items: center;
@@ -148,7 +169,11 @@
   accent-color: rgba(255, 160, 70, 0.85);
 }
 
-/* Inputs */
+
+/* =========================
+   INPUTS
+   ========================= */
+
 .haRow input,
 .haRow textarea {
   width: 100%;
@@ -183,28 +208,11 @@
   margin-bottom: 8px;
 }
 
-/* Hide date/datetime icons */
-.haRow input[type="date"],
-.haRow input[type="datetime-local"] {
-  -webkit-appearance: none;
-  appearance: none;
-}
 
-.haRow input[type="date"]::-webkit-calendar-picker-indicator,
-.haRow input[type="datetime-local"]::-webkit-calendar-picker-indicator {
-  opacity: 0;
-  display: none;
-  -webkit-appearance: none;
-}
+/* =========================
+   BUTTONS
+   ========================= */
 
-.haRow input[type="date"]::-webkit-inner-spin-button,
-.haRow input[type="date"]::-webkit-clear-button,
-.haRow input[type="datetime-local"]::-webkit-inner-spin-button,
-.haRow input[type="datetime-local"]::-webkit-clear-button {
-  display: none;
-}
-
-/* Buttons */
 .haButtons {
   display: flex;
   justify-content: flex-end;
@@ -236,65 +244,10 @@
   color: rgba(255,255,255,0.95);
 }
 
+
 /* =========================
-   SIMPLE-KEYBOARD THEME
+   POST SAVE NOTICE
    ========================= */
-
-.haKbWrap {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(255,255,255,0.10);
-}
-
-/* Base keyboard panel */
-#HA_EVENTADD_PORTAL .haModal .simple-keyboard,
-#HA_EVENTADD_PORTAL .haModal .haKbTheme {
-  background: rgba(17,17,17,0.96) !important;
-  padding: 10px !important;
-  border-radius: 14px !important;
-  border: 1px solid rgba(255,255,255,0.14) !important;
-  box-shadow: none !important;
-}
-
-/* Row spacing */
-#HA_EVENTADD_PORTAL .haModal .simple-keyboard .hg-row,
-#HA_EVENTADD_PORTAL .haModal .haKbTheme .hg-row {
-  margin-bottom: 8px !important;
-}
-
-/* Keys */
-#HA_EVENTADD_PORTAL .haModal .simple-keyboard .hg-button,
-#HA_EVENTADD_PORTAL .haModal .haKbTheme .hg-button {
-  border-radius: 10px !important;
-  border: 1px solid rgba(255,255,255,0.14) !important;
-  background: rgba(255,255,255,0.06) !important;
-  color: rgba(255,255,255,0.94) !important;
-  font-weight: 700 !important;
-}
-
-#HA_EVENTADD_PORTAL .haModal .simple-keyboard .hg-button:active,
-#HA_EVENTADD_PORTAL .haModal .haKbTheme .hg-button:active {
-  background: rgba(255,255,255,0.12) !important;
-  border-color: rgba(255,255,255,0.22) !important;
-}
-
-/* Active/toggled (Caps) */
-#HA_EVENTADD_PORTAL .haModal .simple-keyboard .hg-button.hg-activeButton,
-#HA_EVENTADD_PORTAL .haModal .haKbTheme .hg-button.hg-activeButton {
-  border-color: rgba(255, 170, 90, 0.55) !important;
-  background: rgba(255, 160, 70, 0.18) !important;
-  color: rgba(255,255,255,0.98) !important;
-}
-
-.haStatus {
-  margin-bottom: 10px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.14);
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.85);
-  font-size: 14px;
-}
 
 .haPostSaveNotice{
   margin-top: 14px;
@@ -314,4 +267,51 @@
 .haPostSaveBtns{
   display: flex;
   justify-content: flex-end;
+}
+
+
+/* =========================
+   SIMPLE-KEYBOARD THEME
+   ========================= */
+
+.haKbWrap {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.10);
+}
+
+#HA_EVENTADD_PORTAL .haModal .simple-keyboard,
+#HA_EVENTADD_PORTAL .haModal .haKbTheme {
+  background: rgba(17,17,17,0.96) !important;
+  padding: 10px !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  box-shadow: none !important;
+}
+
+#HA_EVENTADD_PORTAL .haModal .simple-keyboard .hg-row,
+#HA_EVENTADD_PORTAL .haModal .haKbTheme .hg-row {
+  margin-bottom: 8px !important;
+}
+
+#HA_EVENTADD_PORTAL .haModal .simple-keyboard .hg-button,
+#HA_EVENTADD_PORTAL .haModal .haKbTheme .hg-button {
+  border-radius: 10px !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  background: rgba(255,255,255,0.06) !important;
+  color: rgba(255,255,255,0.94) !important;
+  font-weight: 700 !important;
+}
+
+#HA_EVENTADD_PORTAL .haModal .simple-keyboard .hg-button:active,
+#HA_EVENTADD_PORTAL .haModal .haKbTheme .hg-button:active {
+  background: rgba(255,255,255,0.12) !important;
+  border-color: rgba(255,255,255,0.22) !important;
+}
+
+#HA_EVENTADD_PORTAL .haModal .simple-keyboard .hg-button.hg-activeButton,
+#HA_EVENTADD_PORTAL .haModal .haKbTheme .hg-button.hg-activeButton {
+  border-color: rgba(255, 170, 90, 0.55) !important;
+  background: rgba(255, 160, 70, 0.18) !important;
+  color: rgba(255,255,255,0.98) !important;
 }
