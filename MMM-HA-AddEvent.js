@@ -4,7 +4,7 @@ Module.register("MMM-HA-AddEvent", {
   defaults: {
     buttonText: "Add Event",
     calendarTitle: "Add Family Event",
-    defaultDurationMinutes: 60, // default 1 hour
+    defaultDurationMinutes: 60,
     minuteRounding: 5
   },
 
@@ -14,18 +14,13 @@ Module.register("MMM-HA-AddEvent", {
     this._activeField = "ha_summary";
     this._keyboard = null;
 
-    // Keyboard state
     this._capsLock = false;
     this._shiftOneShot = false;
     this._pendingOneShotReset = false;
 
-    // Auto-cap first letter only (per field focus)
     this._autoCapNext = true;
 
-    // Track whether user manually edited end time
     this._endManuallyEdited = false;
-
-    // post-save timer
     this._postSaveTimer = null;
 
     this._current = this._defaultState();
@@ -103,10 +98,8 @@ Module.register("MMM-HA-AddEvent", {
     this._visible = true;
     this._activeField = "ha_summary";
 
-    // Reset end-edit tracking
     this._endManuallyEdited = false;
 
-    // First-letter caps when opening
     this._capsLock = false;
     this._shiftOneShot = false;
     this._pendingOneShotReset = false;
@@ -115,7 +108,6 @@ Module.register("MMM-HA-AddEvent", {
     this._applyVisibility();
     this._syncUIFromState();
 
-    // clear any post-save notice/timers
     this._removePostSaveNotice();
     clearTimeout(this._postSaveTimer);
     this._postSaveTimer = null;
@@ -218,8 +210,20 @@ Module.register("MMM-HA-AddEvent", {
     if (!s) return;
 
     if (!e || e <= s) {
-      this._current.endDT = this._addMinutesDateTimeLocal(this._current.startDT, 60);
-      if (this._refs?.endDT) this._refs.endDT.value = this._current.endDT;
+      this._setEndDT(this._addMinutesDateTimeLocal(this._current.startDT, 60));
+    }
+  },
+
+  _setEndDT(newVal) {
+    const v = String(newVal || "");
+    if (!v) return;
+
+    // Prevent pointless rewrites, this is what stops the “flashing”
+    if (this._current.endDT === v) return;
+
+    this._current.endDT = v;
+    if (this._refs?.endDT && this._refs.endDT.value !== v) {
+      this._refs.endDT.value = v;
     }
   },
 
@@ -228,8 +232,7 @@ Module.register("MMM-HA-AddEvent", {
       this._ensureTimedEndValid();
       return;
     }
-    this._current.endDT = this._addMinutesDateTimeLocal(this._current.startDT, 60);
-    if (this._refs?.endDT) this._refs.endDT.value = this._current.endDT;
+    this._setEndDT(this._addMinutesDateTimeLocal(this._current.startDT, 60));
   },
 
   _buildOnce() {
@@ -289,12 +292,12 @@ Module.register("MMM-HA-AddEvent", {
       this._current.allDay = !!allDayToggle.checked;
 
       if (this._current.allDay) {
-        // Default all-day: one-day (endDate inclusive same as startDate)
-        const base = this._current.startDT ? String(this._current.startDT).split("T")[0] : this._toDateOnly(new Date());
+        const base = this._current.startDT
+          ? String(this._current.startDT).split("T")[0]
+          : this._toDateOnly(new Date());
         this._current.startDate = base;
         this._current.endDate = base;
       } else {
-        // Reset timed, auto end = start + 60
         const fresh = this._defaultState();
         this._current.startDT = fresh.startDT;
         this._current.endDT = fresh.endDT;
@@ -320,13 +323,12 @@ Module.register("MMM-HA-AddEvent", {
     const startDT = document.createElement("input");
     startDT.type = "datetime-local";
     startDT.id = "ha_start_dt";
+    startDT.classList.add("haDtCompact");
 
-    // Use click instead of pointerdown to reduce "double-tap" issues
     startDT.addEventListener("click", (e) => {
       e.stopPropagation();
       this._showPicker(startDT);
     });
-    startDT.addEventListener("focus", () => this._showPicker(startDT));
 
     startDT.addEventListener("change", () => {
       this._current.startDT = startDT.value;
@@ -338,12 +340,12 @@ Module.register("MMM-HA-AddEvent", {
     const endDT = document.createElement("input");
     endDT.type = "datetime-local";
     endDT.id = "ha_end_dt";
+    endDT.classList.add("haDtCompact");
 
     endDT.addEventListener("click", (e) => {
       e.stopPropagation();
       this._showPicker(endDT);
     });
-    endDT.addEventListener("focus", () => this._showPicker(endDT));
 
     endDT.addEventListener("change", () => {
       this._current.endDT = endDT.value;
@@ -362,12 +364,12 @@ Module.register("MMM-HA-AddEvent", {
     const startDate = document.createElement("input");
     startDate.type = "date";
     startDate.id = "ha_start_date";
+    startDate.classList.add("haDtCompact");
 
     startDate.addEventListener("click", (e) => {
       e.stopPropagation();
       this._showPicker(startDate);
     });
-    startDate.addEventListener("focus", () => this._showPicker(startDate));
 
     startDate.addEventListener("change", () => {
       this._current.startDate = startDate.value;
@@ -385,12 +387,12 @@ Module.register("MMM-HA-AddEvent", {
     const endDate = document.createElement("input");
     endDate.type = "date";
     endDate.id = "ha_end_date";
+    endDate.classList.add("haDtCompact");
 
     endDate.addEventListener("click", (e) => {
       e.stopPropagation();
       this._showPicker(endDate);
     });
-    endDate.addEventListener("focus", () => this._showPicker(endDate));
 
     endDate.addEventListener("change", () => {
       this._current.endDate = endDate.value;
@@ -493,11 +495,10 @@ Module.register("MMM-HA-AddEvent", {
   _showPicker(inputEl) {
     if (!inputEl) return;
 
-    // Focus first
+    // Focus first, then try showPicker, then click fallback
     try { inputEl.focus({ preventScroll: true }); } catch (e) {}
 
-    // Next frame, try showPicker, then fallback click
-    requestAnimationFrame(() => {
+    setTimeout(() => {
       try {
         if (typeof inputEl.showPicker === "function") {
           inputEl.showPicker();
@@ -505,10 +506,8 @@ Module.register("MMM-HA-AddEvent", {
         }
       } catch (e) {}
 
-      setTimeout(() => {
-        try { inputEl.click(); } catch (e) {}
-      }, 40);
-    });
+      try { inputEl.click(); } catch (e) {}
+    }, 0);
   },
 
   _setActiveField(id) {
@@ -675,9 +674,7 @@ Module.register("MMM-HA-AddEvent", {
     this._refs.timedWrap.style.display = this._current.allDay ? "none" : "block";
     this._refs.alldayWrap.style.display = this._current.allDay ? "block" : "none";
 
-    if (!this._current.allDay) {
-      this._autoSetTimedEndFromStart();
-    }
+    // IMPORTANT: do not auto-edit endDT here, this is what caused flashing
   },
 
   _submit() {
@@ -702,7 +699,6 @@ Module.register("MMM-HA-AddEvent", {
         return;
       }
 
-      // HA expects end_date exclusive
       const endExclusive = this._addDaysDateOnly(this._current.endDate, 1);
 
       this.sendSocketNotification("CREATE_EVENT", {
