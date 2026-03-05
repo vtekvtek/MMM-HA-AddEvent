@@ -34,16 +34,37 @@ Module.register("MMM-HA-AddEvent", {
       document.body.appendChild(this._portal);
     }
 
-    // IMPORTANT: do NOT set pointerEvents here, it can “stick” and break clicks later
+    // Start with portal guaranteed non-interactive
+    this._portal.style.display = "none";
+    this._portal.style.pointerEvents = "none";
+
+    // Watchdog: if anything leaves the portal interactive while closed, force it off
+    this._startPortalWatchdog();
 
     this._refs = {};
 
     this.sendSocketNotification("CONFIG", this.config);
     this._buildOnce();
-
-    // Force initial closed state
     this._applyVisibility();
     this._syncUIFromState();
+  },
+
+  // =========================
+  // Watchdog to prevent "button works once"
+  // =========================
+  _startPortalWatchdog() {
+    if (this._portalWatchdogTimer) clearInterval(this._portalWatchdogTimer);
+
+    this._portalWatchdogTimer = setInterval(() => {
+      if (!this._portal) return;
+
+      if (!this._visible) {
+        // Force closed state no matter what other modules/CSS did
+        this._portal.classList.remove("is-open");
+        this._portal.style.display = "none";
+        this._portal.style.pointerEvents = "none";
+      }
+    }, 500);
   },
 
   getStyles() {
@@ -86,12 +107,24 @@ Module.register("MMM-HA-AddEvent", {
 
     btn.append(left, right);
 
-    // Keep it simple and reliable
-    btn.addEventListener("click", () => this.open());
+    // Robust open handler: pointerdown beats flaky click layers (Scenes2/kiosk/touch)
+    const openNow = (e) => {
+      if (e) {
+        try { e.preventDefault(); } catch (err) {}
+        try { e.stopPropagation(); } catch (err) {}
+      }
+      if (this._visible) return;
+      this.open();
+    };
+
+    btn.addEventListener("pointerdown", openNow, { passive: false });
+    btn.addEventListener("touchstart", openNow, { passive: false });
+    btn.addEventListener("click", openNow);
+
     btn.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        this.open();
+        openNow(e);
       }
     });
 
@@ -148,7 +181,6 @@ Module.register("MMM-HA-AddEvent", {
 
     const open = !!this._visible;
 
-    // keep class for CSS, but HARD enforce display + pointer events every time
     this._portal.classList.toggle("is-open", open);
     this._portal.style.display = open ? "block" : "none";
     this._portal.style.pointerEvents = open ? "auto" : "none";
@@ -237,7 +269,6 @@ Module.register("MMM-HA-AddEvent", {
   _setEndDT(newVal) {
     const v = String(newVal || "");
     if (!v) return;
-
     if (this._current.endDT === v) return;
 
     this._current.endDT = v;
