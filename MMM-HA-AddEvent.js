@@ -22,9 +22,7 @@ Module.register("MMM-HA-AddEvent", {
     this._endManuallyEdited = false;
     this._postSaveTimer = null;
 
-    // Saving/progress state
     this._isSaving = false;
-
     this._current = this._defaultState();
 
     this._portal = document.getElementById("HA_EVENTADD_PORTAL");
@@ -34,37 +32,89 @@ Module.register("MMM-HA-AddEvent", {
       document.body.appendChild(this._portal);
     }
 
-    // Start with portal guaranteed non-interactive
-    this._portal.style.display = "none";
-    this._portal.style.pointerEvents = "none";
+    // Always start from a known-safe state
+    this._forcePortalClosed();
 
-    // Watchdog: if anything leaves the portal interactive while closed, force it off
+    // Watchdog: enforce correct pointer-events/display both ways
     this._startPortalWatchdog();
 
     this._refs = {};
 
     this.sendSocketNotification("CONFIG", this.config);
     this._buildOnce();
-    this._applyVisibility();
+
+    // Make sure it stays closed until user opens it
+    this._forcePortalClosed();
     this._syncUIFromState();
   },
 
-  // =========================
-  // Watchdog to prevent "button works once"
-  // =========================
+  // -------------------------
+  // MagicMirror lifecycle hooks (Scenes2 safe)
+  // -------------------------
+  suspend() {
+    this._isSaving = false;
+    this._resetBottomBox();
+    clearTimeout(this._postSaveTimer);
+    this._postSaveTimer = null;
+    this._forcePortalClosed();
+  },
+
+  resume() {
+    this._forcePortalClosed();
+  },
+
+  // Scenes2 and other modules sometimes send notifications on scene/layout switches.
+  // This keeps the portal from getting stuck in an interactive state.
+  notificationReceived(notification) {
+    const n = String(notification || "").toUpperCase();
+    if (n.includes("SCENE") || n.includes("SCENES")) {
+      if (this._visible) this.close();
+      else this._forcePortalClosed();
+    }
+  },
+
+  // -------------------------
+  // Portal hard controls
+  // -------------------------
+  _forcePortalClosed() {
+    if (!this._portal) return;
+    this._visible = false;
+    this._portal.classList.remove("is-open");
+    this._portal.style.display = "none";
+    this._portal.style.pointerEvents = "none";
+  },
+
+  _forcePortalOpen() {
+    if (!this._portal) return;
+    this._visible = true;
+    this._portal.classList.add("is-open");
+    this._portal.style.display = "block";
+    this._portal.style.pointerEvents = "auto";
+  },
+
   _startPortalWatchdog() {
     if (this._portalWatchdogTimer) clearInterval(this._portalWatchdogTimer);
 
     this._portalWatchdogTimer = setInterval(() => {
       if (!this._portal) return;
 
+      // If we think we're closed, portal must never intercept taps
       if (!this._visible) {
-        // Force closed state no matter what other modules/CSS did
-        this._portal.classList.remove("is-open");
-        this._portal.style.display = "none";
-        this._portal.style.pointerEvents = "none";
+        if (this._portal.style.pointerEvents !== "none" || this._portal.style.display !== "none") {
+          this._portal.classList.remove("is-open");
+          this._portal.style.display = "none";
+          this._portal.style.pointerEvents = "none";
+        }
+        return;
       }
-    }, 500);
+
+      // If we think we're open, portal must be interactive
+      if (this._portal.style.pointerEvents !== "auto" || this._portal.style.display !== "block") {
+        this._portal.classList.add("is-open");
+        this._portal.style.display = "block";
+        this._portal.style.pointerEvents = "auto";
+      }
+    }, 350);
   },
 
   getStyles() {
@@ -107,19 +157,22 @@ Module.register("MMM-HA-AddEvent", {
 
     btn.append(left, right);
 
-    // Robust open handler: pointerdown beats flaky click layers (Scenes2/kiosk/touch)
+    // IMPORTANT: Use ONE primary gesture. Multiple (touchstart+pointerdown+click)
+    // can double-fire on kiosks.
     const openNow = (e) => {
       if (e) {
         try { e.preventDefault(); } catch (err) {}
         try { e.stopPropagation(); } catch (err) {}
       }
-      if (this._visible) return;
+      if (this._visible || this._isSaving) return;
       this.open();
     };
 
+    // pointerdown for touch and mouse
     btn.addEventListener("pointerdown", openNow, { passive: false });
-    btn.addEventListener("touchstart", openNow, { passive: false });
-    btn.addEventListener("click", openNow);
+
+    // click as fallback only (some desktop browsers)
+    btn.addEventListener("click", (e) => openNow(e));
 
     btn.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -135,7 +188,6 @@ Module.register("MMM-HA-AddEvent", {
 
   open() {
     this._current = this._defaultState();
-    this._visible = true;
     this._activeField = "ha_summary";
 
     this._endManuallyEdited = false;
@@ -147,7 +199,7 @@ Module.register("MMM-HA-AddEvent", {
 
     this._isSaving = false;
 
-    this._applyVisibility();
+    this._forcePortalOpen();
     this._syncUIFromState();
 
     this._resetBottomBox();
@@ -166,24 +218,19 @@ Module.register("MMM-HA-AddEvent", {
   },
 
   close() {
-    this._visible = false;
     this._isSaving = false;
 
     this._resetBottomBox();
     clearTimeout(this._postSaveTimer);
     this._postSaveTimer = null;
 
-    this._applyVisibility();
+    this._forcePortalClosed();
   },
 
+  // Keep for compatibility if anything calls it internally
   _applyVisibility() {
-    if (!this._portal) return;
-
-    const open = !!this._visible;
-
-    this._portal.classList.toggle("is-open", open);
-    this._portal.style.display = open ? "block" : "none";
-    this._portal.style.pointerEvents = open ? "auto" : "none";
+    if (this._visible) this._forcePortalOpen();
+    else this._forcePortalClosed();
   },
 
   _defaultState() {
@@ -311,7 +358,6 @@ Module.register("MMM-HA-AddEvent", {
 
     const form = document.createElement("div");
 
-    // Title row
     const summaryRow = this._rowBase("Title", "ha_summary");
     const summary = document.createElement("input");
     summary.type = "text";
@@ -326,7 +372,6 @@ Module.register("MMM-HA-AddEvent", {
     });
     summaryRow.appendChild(summary);
 
-    // All day row
     const allDayRow = document.createElement("div");
     allDayRow.className = "haRowInline";
 
@@ -368,7 +413,6 @@ Module.register("MMM-HA-AddEvent", {
 
     allDayRow.append(allDayLabel, allDayToggle);
 
-    // Timed container
     const timedWrap = document.createElement("div");
     timedWrap.className = "haTimedWrap";
 
@@ -411,7 +455,6 @@ Module.register("MMM-HA-AddEvent", {
 
     timedWrap.append(startDTRow, endDTRow);
 
-    // All-day container
     const alldayWrap = document.createElement("div");
     alldayWrap.className = "haAllDayWrap";
 
@@ -468,7 +511,6 @@ Module.register("MMM-HA-AddEvent", {
 
     alldayWrap.append(startDateRow, endDateRow, hint);
 
-    // Notes row
     const descRow = this._rowBase("Notes", "ha_desc");
     const desc = document.createElement("textarea");
     desc.id = "ha_desc";
@@ -482,14 +524,12 @@ Module.register("MMM-HA-AddEvent", {
     });
     descRow.appendChild(desc);
 
-    // Keyboard container
     const kbWrap = document.createElement("div");
     kbWrap.className = "haKbWrap";
     const kb = document.createElement("div");
     kb.className = "simple-keyboard";
     kbWrap.appendChild(kb);
 
-    // Bottom box under keyboard (reuse same element for progress + final)
     const bottomBox = document.createElement("div");
     bottomBox.className = "haPostSaveNotice";
     bottomBox.style.display = "none";
@@ -510,7 +550,6 @@ Module.register("MMM-HA-AddEvent", {
     bottomBtns.appendChild(bottomOk);
     bottomBox.append(bottomText, bottomBtns);
 
-    // Buttons
     const btnBar = document.createElement("div");
     btnBar.className = "haButtons";
 
