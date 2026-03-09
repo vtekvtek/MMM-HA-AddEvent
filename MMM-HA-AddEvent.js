@@ -32,10 +32,7 @@ Module.register("MMM-HA-AddEvent", {
       document.body.appendChild(this._portal);
     }
 
-    // Always start from a known-safe state
     this._forcePortalClosed();
-
-    // Watchdog: enforce correct pointer-events/display both ways
     this._startPortalWatchdog();
 
     this._refs = {};
@@ -43,14 +40,10 @@ Module.register("MMM-HA-AddEvent", {
     this.sendSocketNotification("CONFIG", this.config);
     this._buildOnce();
 
-    // Make sure it stays closed until user opens it
     this._forcePortalClosed();
     this._syncUIFromState();
   },
 
-  // -------------------------
-  // MagicMirror lifecycle hooks (Scenes2 safe)
-  // -------------------------
   suspend() {
     this._isSaving = false;
     this._resetBottomBox();
@@ -63,9 +56,34 @@ Module.register("MMM-HA-AddEvent", {
     this._forcePortalClosed();
   },
 
-  // Scenes2 and other modules sometimes send notifications on scene/layout switches.
-  // This keeps the portal from getting stuck in an interactive state.
-  notificationReceived(notification) {
+  notificationReceived(notification, payload) {
+    if (notification === "HA_ADD_EVENT_OPEN_FOR_DATE") {
+      const date = String(payload?.date || "").trim();
+      if (!date) return;
+
+      this.open();
+
+      this._current.allDay = true;
+      this._current.startDate = date;
+      this._current.endDate = date;
+      this._current.startDT = `${date}T09:00`;
+      this._current.endDT = `${date}T10:00`;
+
+      this._endManuallyEdited = false;
+      this._activeField = "ha_summary";
+
+      this._syncUIFromState();
+
+      setTimeout(() => {
+        const el = this._refs?.summary;
+        if (el) el.focus({ preventScroll: true });
+        this._initKeyboardIfNeeded();
+        this._applyKeyboardCaseMode(true);
+        this._syncKeyboardToActive();
+      }, 0);
+      return;
+    }
+
     const n = String(notification || "").toUpperCase();
     if (n.includes("SCENE") || n.includes("SCENES")) {
       if (this._visible) this.close();
@@ -73,9 +91,6 @@ Module.register("MMM-HA-AddEvent", {
     }
   },
 
-  // -------------------------
-  // Portal hard controls
-  // -------------------------
   _forcePortalClosed() {
     if (!this._portal) return;
     this._visible = false;
@@ -98,7 +113,6 @@ Module.register("MMM-HA-AddEvent", {
     this._portalWatchdogTimer = setInterval(() => {
       if (!this._portal) return;
 
-      // If we think we're closed, portal must never intercept taps
       if (!this._visible) {
         if (this._portal.style.pointerEvents !== "none" || this._portal.style.display !== "none") {
           this._portal.classList.remove("is-open");
@@ -108,7 +122,6 @@ Module.register("MMM-HA-AddEvent", {
         return;
       }
 
-      // If we think we're open, portal must be interactive
       if (this._portal.style.pointerEvents !== "auto" || this._portal.style.display !== "block") {
         this._portal.classList.add("is-open");
         this._portal.style.display = "block";
@@ -157,8 +170,6 @@ Module.register("MMM-HA-AddEvent", {
 
     btn.append(left, right);
 
-    // IMPORTANT: Use ONE primary gesture. Multiple (touchstart+pointerdown+click)
-    // can double-fire on kiosks.
     const openNow = (e) => {
       if (e) {
         try { e.preventDefault(); } catch (err) {}
@@ -168,10 +179,7 @@ Module.register("MMM-HA-AddEvent", {
       this.open();
     };
 
-    // pointerdown for touch and mouse
     btn.addEventListener("pointerdown", openNow, { passive: false });
-
-    // click as fallback only (some desktop browsers)
     btn.addEventListener("click", (e) => openNow(e));
 
     btn.addEventListener("keydown", (e) => {
@@ -227,7 +235,6 @@ Module.register("MMM-HA-AddEvent", {
     this._forcePortalClosed();
   },
 
-  // Keep for compatibility if anything calls it internally
   _applyVisibility() {
     if (this._visible) this._forcePortalOpen();
     else this._forcePortalClosed();
